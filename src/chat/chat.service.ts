@@ -1,75 +1,33 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
-import {
-  MessageArtifactType,
-  MessageRole,
-  MessageStatus,
-} from '@prisma/client';
-import { DatabaseSourcesService } from '../database-sources/database-sources.service';
-import { fromPrismaLlmProvider } from '../llm-connections/llm-connections.types';
-import { LlmConnectionsService } from '../llm-connections/llm-connections.service';
-import { AgentGatewayService } from './agent-gateway.service';
-import { ChatRepository } from './chat.repository';
+import { MessageArtifactType } from '@prisma/client';
 import { EphemeralStateService } from './ephemeral-state.service';
 import { RuntimeConfigService } from './runtime-config.service';
-import {
-  AgentStreamEvent,
-  CreateConversationInput,
-  PersistedConversationMessage,
-} from './chat.types';
+import { ArtifactInput, ArtifactService } from './artifact.service';
+import { ConversationService } from './conversation.service';
+import { MessageStreamingService } from './message-streaming.service';
+import { AgentStreamEvent, CreateConversationInput } from './chat.types';
 
 @Injectable()
 export class ChatService {
   constructor(
-    private readonly chatRepository: ChatRepository,
-    private readonly databaseSourcesService: DatabaseSourcesService,
-    private readonly llmConnectionsService: LlmConnectionsService,
+    private readonly conversationService: ConversationService,
+    private readonly artifactService: ArtifactService,
+    private readonly messageStreamingService: MessageStreamingService,
     private readonly runtimeConfigService: RuntimeConfigService,
-    private readonly agentGatewayService: AgentGatewayService,
     private readonly ephemeralStateService: EphemeralStateService,
   ) {}
 
   async createConversation(userId: string, input: CreateConversationInput) {
-    const [databaseSource, llmConnection] = await Promise.all([
-      this.databaseSourcesService.getRuntimeForUser(userId, input.databaseSourceId),
-      this.llmConnectionsService.getRuntimeForUser(userId, input.llmConnectionId),
-    ]);
-
-    const title =
-      input.title?.trim() ||
-      `New chat · ${this.resolveDatabaseLabel(databaseSource.provider, databaseSource.sqliteOriginalFilename)} · ${llmConnection.defaultModel}`;
-
-    const conversation = await this.chatRepository.createConversation({
-      userId,
-      title,
-      databaseSourceId: input.databaseSourceId,
-      llmConnectionId: input.llmConnectionId,
-    });
-
-    return this.toConversationSummary(conversation);
+    return this.conversationService.createConversation(userId, input);
   }
 
   async listConversations(userId: string) {
-    const conversations = await this.chatRepository.findConversationSummaryByUser(userId);
-    return conversations.map((conversation) => this.toConversationSummary(conversation));
+    return this.conversationService.listConversations(userId);
   }
 
   async getConversation(userId: string, conversationId: string) {
-    const conversation = await this.chatRepository.findConversationForUser(
-      userId,
-      conversationId,
-    );
-
-    if (!conversation) {
-      throw new BadRequestException('Conversation could not be found.');
-    }
-
-    return {
-      ...this.toConversationSummary(conversation),
-      messages: conversation.messages.map((message) =>
-        this.toConversationMessage(message),
-      ),
-    };
+    return this.conversationService.getConversation(userId, conversationId);
   }
 
   async *streamConversationMessage(
@@ -83,29 +41,17 @@ export class ChatService {
       throw new BadRequestException('content is required');
     }
 
-    const conversation = await this.chatRepository.findConversationRuntime(
-      userId,
-      conversationId,
-    );
+    const conversation = await this.conversationService.findRuntime(userId, conversationId);
     if (!conversation) {
       throw new BadRequestException('Conversation could not be found.');
     }
 
-    const userMessage = await this.chatRepository.createMessage({
+    const { assistantMessage } = await this.conversationService.createMessagePair(
       conversationId,
-      role: MessageRole.USER,
-      status: MessageStatus.COMPLETED,
-      content: trimmedContent,
-    });
+      trimmedContent,
+    );
 
-    const assistantMessage = await this.chatRepository.createMessage({
-      conversationId,
-      role: MessageRole.ASSISTANT,
-      status: MessageStatus.STREAMING,
-      content: '',
-    });
-
-    const history = await this.chatRepository.findRecentHistory(conversationId, 24);
+    const history = await this.conversationService.findRecentHistory(conversationId, 24);
     const runtime = await this.runtimeConfigService.resolve(
       userId,
       conversation.databaseSourceId,
@@ -113,11 +59,8 @@ export class ChatService {
       request,
     );
 
-    const requestId = this.agentGatewayService.createRequestId();
-    const artifactInputs: Array<{
-      type: MessageArtifactType;
-      payload: Record<string, unknown>;
-    }> = [];
+    const requestId = this.messageStreamingService.createRequestId();
+    const artifactBuffer: ArtifactInput[] = [];
 
     let assistantContent = '';
     let failedMessage: string | null = null;
@@ -127,13 +70,11 @@ export class ChatService {
 
     yield {
       type: 'message_started',
-      data: {
-        messageId: assistantMessage.id,
-      },
+      data: { messageId: assistantMessage.id },
     };
 
     try {
-      for await (const event of this.agentGatewayService.streamChat({
+      for await (const event of this.messageStreamingService.streamFromAgent({
         requestId,
         conversationId,
         userId,
@@ -149,6 +90,7 @@ export class ChatService {
         llm: runtime.llm,
       })) {
         this.ephemeralStateService.touch(requestId);
+        this.artifactService.collectFromEvent(event, artifactBuffer);
 
         switch (event.type) {
           case 'message_started':
@@ -157,194 +99,71 @@ export class ChatService {
             assistantContent += event.data.delta;
             yield event;
             break;
-          case 'sql_generated':
-            artifactInputs.push({
-              type: MessageArtifactType.SQL,
-              payload: event.data,
-            });
-            yield event;
-            break;
-          case 'sql_result':
-            artifactInputs.push({
-              type: MessageArtifactType.TABLE,
-              payload: event.data,
-            });
-            yield event;
-            break;
-          case 'chart_generated':
-            artifactInputs.push({
-              type: MessageArtifactType.CHART,
-              payload: event.data,
-            });
-            yield event;
-            break;
-          case 'artifact':
-            artifactInputs.push({
-              type: event.data.artifactType,
-              payload: event.data.payload,
-            });
-            yield event;
-            break;
-          case 'agent_step':
-            yield event;
-            break;
           case 'message_completed':
             assistantContent = event.data.content || assistantContent;
             didComplete = true;
             yield {
               type: 'message_completed',
-              data: {
-                messageId: assistantMessage.id,
-                content: assistantContent,
-              },
+              data: { messageId: assistantMessage.id, content: assistantContent },
             };
             break;
           case 'message_failed':
             failedMessage = event.data.error || 'Agent execution failed.';
             yield {
               type: 'message_failed',
-              data: {
-                messageId: assistantMessage.id,
-                error: failedMessage,
-              },
+              data: { messageId: assistantMessage.id, error: failedMessage },
             };
             break;
+          default:
+            yield event;
         }
       }
 
       if (failedMessage) {
-        artifactInputs.push({
+        artifactBuffer.push({
           type: MessageArtifactType.ERROR,
-          payload: {
-            error: failedMessage,
-          },
+          payload: { error: failedMessage },
         });
-        await this.chatRepository.failMessage(
+        await this.conversationService.failMessage(
           assistantMessage.id,
           failedMessage,
           assistantContent,
         );
+        await this.artifactService.saveArtifacts(assistantMessage.id, artifactBuffer);
         return;
       }
 
       if (!didComplete) {
         yield {
           type: 'message_completed',
-          data: {
-            messageId: assistantMessage.id,
-            content: assistantContent,
-          },
+          data: { messageId: assistantMessage.id, content: assistantContent },
         };
       }
 
-      await this.chatRepository.completeMessage(assistantMessage.id, assistantContent);
-
-      for (const artifact of artifactInputs) {
-        await this.chatRepository.createArtifact({
-          messageId: assistantMessage.id,
-          type: artifact.type,
-          payload: artifact.payload,
-        });
-      }
+      await this.conversationService.completeMessage(assistantMessage.id, assistantContent);
+      await this.artifactService.saveArtifacts(assistantMessage.id, artifactBuffer);
     } catch (error) {
       const message =
         error instanceof Error && error.message.trim()
           ? error.message
           : 'Agent execution failed.';
 
-      await this.chatRepository.failMessage(
+      await this.conversationService.failMessage(
         assistantMessage.id,
         message,
         assistantContent,
       );
-      await this.chatRepository.createArtifact({
-        messageId: assistantMessage.id,
-        type: MessageArtifactType.ERROR,
-        payload: {
-          error: message,
-        },
-      });
+      await this.artifactService.saveArtifacts(assistantMessage.id, [
+        ...artifactBuffer,
+        { type: MessageArtifactType.ERROR, payload: { error: message } },
+      ]);
 
       yield {
         type: 'message_failed',
-        data: {
-          messageId: assistantMessage.id,
-          error: message,
-        },
+        data: { messageId: assistantMessage.id, error: message },
       };
     } finally {
       this.ephemeralStateService.finish(requestId);
-      void userMessage;
     }
-  }
-
-  private toConversationSummary(
-    conversation: Awaited<
-      ReturnType<ChatRepository['createConversation']>
-    >,
-  ) {
-    return {
-      id: conversation.id,
-      title: conversation.title,
-      lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
-      createdAt: conversation.createdAt.toISOString(),
-      updatedAt: conversation.updatedAt.toISOString(),
-      databaseSourceId: conversation.databaseSourceId,
-      llmConnectionId: conversation.llmConnectionId,
-      databaseSource: {
-        id: conversation.databaseSource.id,
-        provider: conversation.databaseSource.provider,
-        status: conversation.databaseSource.status,
-        sqliteOriginalFilename: conversation.databaseSource.sqliteOriginalFilename,
-        lastError: conversation.databaseSource.lastError,
-        lastTestedAt: conversation.databaseSource.lastTestedAt?.toISOString() ?? null,
-        createdAt: conversation.databaseSource.createdAt.toISOString(),
-        updatedAt: conversation.databaseSource.updatedAt.toISOString(),
-      },
-      llmConnection: {
-        id: conversation.llmConnection.id,
-        provider: fromPrismaLlmProvider(conversation.llmConnection.provider),
-        status: conversation.llmConnection.status,
-        displayName: conversation.llmConnection.displayName,
-        defaultModel: conversation.llmConnection.defaultModel,
-        apiKeyLastFour: conversation.llmConnection.apiKeyLastFour,
-        usesLinkedAccount: conversation.llmConnection.usesLinkedAccount,
-        linkedProviderId: conversation.llmConnection.linkedProviderId,
-        lastError: conversation.llmConnection.lastError,
-        lastTestedAt: conversation.llmConnection.lastTestedAt?.toISOString() ?? null,
-        createdAt: conversation.llmConnection.createdAt.toISOString(),
-        updatedAt: conversation.llmConnection.updatedAt.toISOString(),
-      },
-    };
-  }
-
-  private toConversationMessage(message: PersistedConversationMessage) {
-    return {
-      id: message.id,
-      role: message.role.toLowerCase(),
-      status: message.status,
-      content: message.content,
-      error: message.error,
-      createdAt: message.createdAt.toISOString(),
-      updatedAt: message.updatedAt.toISOString(),
-      artifacts: message.artifacts.map((artifact) => ({
-        id: artifact.id,
-        type: artifact.type,
-        payload: artifact.payload,
-        createdAt: artifact.createdAt.toISOString(),
-      })),
-    };
-  }
-
-  private resolveDatabaseLabel(provider: string, sqliteOriginalFilename?: string | null) {
-    if (provider === 'sqlite') {
-      return sqliteOriginalFilename?.trim() || 'SQLite upload';
-    }
-
-    if (provider === 'postgresql') {
-      return 'PostgreSQL';
-    }
-
-    return provider;
   }
 }
