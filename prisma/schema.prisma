@@ -1,0 +1,209 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Better Auth required tables ──────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sessions Session[]
+  accounts Account[]
+  databaseSources DatabaseSource[]
+  llmConnections  LlmConnection[]
+  conversations   Conversation[]
+
+  @@map("users")
+}
+
+enum DatabaseSourceStatus {
+  PENDING
+  SYNCING
+  READY
+  FAILED
+}
+
+enum LlmConnectionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum LlmProvider {
+  OPENAI
+  ANTHROPIC
+  OPENROUTER
+  GOOGLE
+  GITHUB_COPILOT
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum MessageStatus {
+  PENDING
+  STREAMING
+  COMPLETED
+  FAILED
+}
+
+enum MessageArtifactType {
+  TEXT
+  SQL
+  TABLE
+  CHART
+  ERROR
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@map("accounts")
+}
+
+model Verification {
+  id         String    @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime? @default(now())
+  updatedAt  DateTime? @updatedAt
+
+  @@map("verifications")
+}
+
+model DatabaseSource {
+  id                   String               @id @default(cuid())
+  provider             String
+  status               DatabaseSourceStatus @default(PENDING)
+  connectionString     String?
+  sqliteFilePath       String?
+  sqliteOriginalFilename String?
+  schemaFingerprint    String?
+  lastError            String?
+  lastTestedAt         DateTime?
+  lastSyncedAt         DateTime?
+  syncRequestedAt      DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+
+  @@map("database_sources")
+}
+
+model LlmConnection {
+  id              String              @id @default(cuid())
+  provider        LlmProvider
+  status          LlmConnectionStatus @default(PENDING)
+  displayName     String
+  defaultModel    String
+  encryptedApiKey String?
+  apiKeyLastFour  String?
+  usesLinkedAccount Boolean           @default(false)
+  linkedProviderId String?
+  baseUrl         String?
+  lastError       String?
+  lastTestedAt    DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+
+  @@map("llm_connections")
+}
+
+model Conversation {
+  id               String         @id @default(cuid())
+  title            String
+  lastMessageAt    DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  userId           String
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  databaseSourceId String
+  databaseSource   DatabaseSource @relation(fields: [databaseSourceId], references: [id], onDelete: Cascade)
+  llmConnectionId  String
+  llmConnection    LlmConnection  @relation(fields: [llmConnectionId], references: [id], onDelete: Cascade)
+  messages         Message[]
+
+  @@index([userId, updatedAt])
+  @@map("conversations")
+}
+
+model Message {
+  id             String        @id @default(cuid())
+  role           MessageRole
+  status         MessageStatus @default(PENDING)
+  content        String
+  error          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  conversationId String
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  artifacts      MessageArtifact[]
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+model MessageArtifact {
+  id         String              @id @default(cuid())
+  type       MessageArtifactType
+  payload    Json
+  createdAt  DateTime            @default(now())
+
+  messageId  String
+  message    Message             @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId, createdAt])
+  @@map("message_artifacts")
+}
