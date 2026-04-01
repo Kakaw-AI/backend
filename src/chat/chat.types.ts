@@ -55,8 +55,6 @@ export type AgentSyncRequest = {
 export type AgentSyncResponse = {
   sourceId: string;
   status: 'READY' | 'FAILED';
-  schemaFingerprint?: string;
-  tableCount: number;
   memoryCount: number;
   syncedAt: string;
   error?: string;

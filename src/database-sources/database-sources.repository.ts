@@ -24,7 +24,6 @@ export class DatabaseSourcesRepository {
         provider: true,
         status: true,
         sqliteOriginalFilename: true,
-        schemaFingerprint: true,
         lastError: true,
         lastTestedAt: true,
         lastSyncedAt: true,
@@ -45,7 +44,6 @@ export class DatabaseSourcesRepository {
         connectionString: true,
         sqliteFilePath: true,
         sqliteOriginalFilename: true,
-        schemaFingerprint: true,
         lastError: true,
         lastTestedAt: true,
         lastSyncedAt: true,
@@ -108,7 +106,6 @@ export class DatabaseSourcesRepository {
         connectionString: true,
         sqliteFilePath: true,
         sqliteOriginalFilename: true,
-        schemaFingerprint: true,
         lastError: true,
         lastTestedAt: true,
         lastSyncedAt: true,
@@ -119,7 +116,7 @@ export class DatabaseSourcesRepository {
     });
   }
 
-  markReady(id: string, schemaFingerprint?: string | null) {
+  markReady(id: string) {
     return this.prisma.databaseSource.update({
       where: { id },
       data: {
@@ -127,14 +124,13 @@ export class DatabaseSourcesRepository {
         lastError: null,
         lastTestedAt: new Date(),
         lastSyncedAt: new Date(),
-        schemaFingerprint: schemaFingerprint ?? null,
+        schemaFingerprint: null,
       },
       select: {
         id: true,
         provider: true,
         status: true,
         sqliteOriginalFilename: true,
-        schemaFingerprint: true,
         lastError: true,
         lastTestedAt: true,
         lastSyncedAt: true,
@@ -158,7 +154,6 @@ export class DatabaseSourcesRepository {
         provider: true,
         status: true,
         sqliteOriginalFilename: true,
-        schemaFingerprint: true,
         lastError: true,
         lastTestedAt: true,
         lastSyncedAt: true,
@@ -180,7 +175,6 @@ export class DatabaseSourcesRepository {
         connectionString: true,
         sqliteFilePath: true,
         sqliteOriginalFilename: true,
-        schemaFingerprint: true,
         lastError: true,
         lastTestedAt: true,
         lastSyncedAt: true,

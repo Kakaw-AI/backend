@@ -146,16 +146,13 @@ export class DatabaseSourcesService {
     }
 
     try {
-      const syncResult = await this.agentGatewayService.syncDatabaseSource({
+      await this.agentGatewayService.syncDatabaseSource({
         requestId: this.agentGatewayService.createRequestId(),
         userId: source.userId,
         database: this.toAgentDatabaseRuntime(source),
       });
 
-      await this.databaseSourcesRepository.markReady(
-        source.id,
-        syncResult.schemaFingerprint ?? null,
-      );
+      await this.databaseSourcesRepository.markReady(source.id);
     } catch (error) {
       const message =
         error instanceof Error && error.message.trim()
