@@ -1,4 +1,12 @@
-import { BadRequestException, Body, Controller, Post, Req } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Param,
+  Post,
+  Req,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { AuthUser } from '../auth/better-auth.config';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -33,6 +41,33 @@ export class LlmConnectionsController {
     return this.llmConnectionsService.createForUser(user.id, request, input);
   }
 
+  @Post(':id/activate')
+  activateLlmConnection(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.llmConnectionsService.activateForUser(user.id, this.toConnectionId(id));
+  }
+
+  @Post(':id/deactivate')
+  deactivateLlmConnection(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.llmConnectionsService.deactivateForUser(
+      user.id,
+      this.toConnectionId(id),
+    );
+  }
+
+  @Delete(':id')
+  deleteLlmConnection(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.llmConnectionsService.deleteForUser(user.id, this.toConnectionId(id));
+  }
+
   private toCreateInput(body: CreateLlmConnectionBody): CreateLlmConnectionInput {
     const provider =
       typeof body.provider === 'string' ? body.provider.trim().toLowerCase() : '';
@@ -58,5 +93,14 @@ export class LlmConnectionsController {
       apiKey: typeof body.apiKey === 'string' ? body.apiKey.trim() : undefined,
       baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl.trim() : undefined,
     };
+  }
+
+  private toConnectionId(id: string) {
+    const connectionId = id.trim();
+    if (!connectionId) {
+      throw new BadRequestException('id is required');
+    }
+
+    return connectionId;
   }
 }

@@ -18,6 +18,8 @@ export type CreateLlmConnectionInput = {
   baseUrl?: string;
 };
 
+export type LlmConnectionAction = 'activate' | 'deactivate' | 'delete';
+
 export function isSupportedLlmProvider(
   value: string,
 ): value is SupportedLlmProvider {
@@ -64,6 +66,14 @@ export function fromPrismaLlmProvider(provider: LlmProvider): SupportedLlmProvid
 
 export function providerUsesLinkedAccount(provider: SupportedLlmProvider) {
   return provider === 'github-copilot';
+}
+
+export function getLinkedProviderId(provider: SupportedLlmProvider) {
+  return provider === 'github-copilot' ? 'github' : null;
+}
+
+export function normalizeBaseUrl(value?: string | null) {
+  return value?.trim().replace(/\/+$/, '') || null;
 }
 
 export function buildDefaultDisplayName(

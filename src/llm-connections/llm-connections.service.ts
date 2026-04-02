@@ -7,8 +7,11 @@ import { LlmConnectionsRepository } from './llm-connections.repository';
 import { SecretsService } from './secrets.service';
 import {
   CreateLlmConnectionInput,
+  LlmConnectionAction,
   SupportedLlmProvider,
   buildDefaultDisplayName,
+  getLinkedProviderId,
+  normalizeBaseUrl,
   providerUsesLinkedAccount,
   toPrismaLlmProvider,
 } from './llm-connections.types';
@@ -76,12 +79,14 @@ export class LlmConnectionsService {
     request: Request,
     input: CreateLlmConnectionInput,
   ) {
+    const defaultModel = this.getDefaultModel(input);
     const displayName = input.displayName?.trim()
       ? input.displayName.trim()
-      : buildDefaultDisplayName(input.provider, this.getDefaultModel(input));
-    const defaultModel = this.getDefaultModel(input);
+      : buildDefaultDisplayName(input.provider, defaultModel);
     const usesLinkedAccount = providerUsesLinkedAccount(input.provider);
+    const linkedProviderId = getLinkedProviderId(input.provider);
     const apiKey = input.apiKey?.trim();
+    const normalizedBaseUrl = normalizeBaseUrl(input.baseUrl);
 
     if (usesLinkedAccount && apiKey) {
       throw new BadRequestException(
@@ -94,30 +99,36 @@ export class LlmConnectionsService {
     }
 
     const apiKeyLastFour = apiKey ? apiKey.slice(-4) : undefined;
-
-    // Check display name uniqueness
-    const existingByName = await this.llmConnectionsRepository.findByDisplayNameForUser(
-      userId,
-      displayName,
-    );
-    if (existingByName) {
-      throw new BadRequestException(
-        `An LLM connection named "${displayName}" already exists.`,
-      );
-    }
-
-    // Check API key uniqueness (only when an API key is provided)
-    if (apiKey) {
-      const existingByKey = await this.llmConnectionsRepository.findByProviderAndLastFourForUser(
+    const duplicateCandidates =
+      await this.llmConnectionsRepository.findDuplicateCandidatesForUser(
         userId,
         toPrismaLlmProvider(input.provider),
-        apiKey.slice(-4),
       );
-      if (existingByKey) {
-        throw new BadRequestException(
-          `This API key is already registered for ${input.provider}.`,
-        );
+
+    const exactDuplicate = duplicateCandidates.find((candidate) => {
+      const sameName = candidate.displayName.trim() === displayName;
+      const sameModel = candidate.defaultModel.trim() === defaultModel;
+      const sameBaseUrl = normalizeBaseUrl(candidate.baseUrl) === normalizedBaseUrl;
+
+      if (!sameName || !sameModel || !sameBaseUrl) {
+        return false;
       }
+
+      if (usesLinkedAccount) {
+        return candidate.linkedProviderId === linkedProviderId;
+      }
+
+      const candidateApiKey = candidate.encryptedApiKey
+        ? this.secretsService.decrypt(candidate.encryptedApiKey)
+        : null;
+
+      return candidateApiKey === apiKey;
+    });
+
+    if (exactDuplicate) {
+      throw new BadRequestException(
+        'An identical LLM connection already exists.',
+      );
     }
 
     const pendingConnection = await this.llmConnectionsRepository.createPending({
@@ -128,15 +139,15 @@ export class LlmConnectionsService {
       encryptedApiKey: apiKey ? this.secretsService.encrypt(apiKey) : undefined,
       apiKeyLastFour,
       usesLinkedAccount,
-      linkedProviderId: usesLinkedAccount ? 'github' : undefined,
-      baseUrl: input.baseUrl?.trim() || undefined,
+      linkedProviderId: linkedProviderId ?? undefined,
+      baseUrl: normalizedBaseUrl ?? undefined,
     });
 
     try {
       if (usesLinkedAccount) {
         await this.validateCopilotConnection(request, defaultModel);
       } else if (apiKey) {
-        await this.validateApiKeyProvider(input.provider, apiKey, input.baseUrl?.trim());
+        await this.validateApiKeyProvider(input.provider, apiKey, normalizedBaseUrl ?? undefined);
       }
 
       await this.llmConnectionsRepository.markSuccess(pendingConnection.id);
@@ -162,6 +173,20 @@ export class LlmConnectionsService {
     return connection;
   }
 
+  async activateForUser(userId: string, id: string) {
+    return this.updateLifecycleForUser(userId, id, 'activate');
+  }
+
+  async deactivateForUser(userId: string, id: string) {
+    return this.updateLifecycleForUser(userId, id, 'deactivate');
+  }
+
+  async deleteForUser(userId: string, id: string) {
+    await this.getByIdForUser(userId, id);
+    await this.llmConnectionsRepository.deleteForUser(id, userId);
+    return { id };
+  }
+
   private getDefaultModel(input: CreateLlmConnectionInput) {
     const defaultModel = input.defaultModel?.trim();
     if (!defaultModel) {
@@ -169,6 +194,22 @@ export class LlmConnectionsService {
     }
 
     return defaultModel;
+  }
+
+  private async updateLifecycleForUser(
+    userId: string,
+    id: string,
+    action: Exclude<LlmConnectionAction, 'delete'>,
+  ) {
+    await this.getByIdForUser(userId, id);
+
+    if (action === 'activate') {
+      await this.llmConnectionsRepository.activate(id);
+    } else {
+      await this.llmConnectionsRepository.deactivate(id);
+    }
+
+    return this.getByIdForUser(userId, id);
   }
 
   private async validateCopilotConnection(request: Request, defaultModel: string) {
@@ -216,7 +257,7 @@ export class LlmConnectionsService {
   ): ProviderValidationRequest {
     switch (provider) {
       case 'openai': {
-        const resolvedBase = baseUrl?.trim() || 'https://api.openai.com/v1';
+        const resolvedBase = normalizeBaseUrl(baseUrl) || 'https://api.openai.com/v1';
         return {
           url: `${resolvedBase.replace(/\/$/, '')}/models`,
           headers: {

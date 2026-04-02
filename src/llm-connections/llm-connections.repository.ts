@@ -37,6 +37,7 @@ export class LlmConnectionsRepository {
         usesLinkedAccount: true,
         linkedProviderId: true,
         baseUrl: true,
+        isActive: true,
         lastError: true,
         lastTestedAt: true,
         createdAt: true,
@@ -64,6 +65,7 @@ export class LlmConnectionsRepository {
         usesLinkedAccount: true,
         linkedProviderId: true,
         baseUrl: true,
+        isActive: true,
         lastError: true,
         lastTestedAt: true,
       },
@@ -116,19 +118,22 @@ export class LlmConnectionsRepository {
     });
   }
 
-  findByProviderAndLastFourForUser(
-    userId: string,
-    provider: LlmProvider,
-    apiKeyLastFour: string,
-  ) {
-    return this.prisma.llmConnection.findFirst({
+  findDuplicateCandidatesForUser(userId: string, provider: LlmProvider) {
+    return this.prisma.llmConnection.findMany({
       where: {
         userId,
         provider,
-        apiKeyLastFour,
-        status: { not: LlmConnectionStatus.FAILED },
       },
-      select: { id: true },
+      select: {
+        id: true,
+        displayName: true,
+        defaultModel: true,
+        encryptedApiKey: true,
+        linkedProviderId: true,
+        baseUrl: true,
+        isActive: true,
+        status: true,
+      },
     });
   }
 
@@ -176,6 +181,39 @@ export class LlmConnectionsRepository {
       },
       select: {
         id: true,
+      },
+    });
+  }
+
+  activate(id: string) {
+    return this.prisma.llmConnection.update({
+      where: { id },
+      data: {
+        isActive: true,
+      },
+      select: {
+        id: true,
+      },
+    });
+  }
+
+  deactivate(id: string) {
+    return this.prisma.llmConnection.update({
+      where: { id },
+      data: {
+        isActive: false,
+      },
+      select: {
+        id: true,
+      },
+    });
+  }
+
+  deleteForUser(id: string, userId: string) {
+    return this.prisma.llmConnection.deleteMany({
+      where: {
+        id,
+        userId,
       },
     });
   }
