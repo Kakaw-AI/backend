@@ -20,6 +20,8 @@ export type CreateLlmConnectionInput = {
 
 export type LlmConnectionAction = 'activate' | 'deactivate' | 'delete';
 
+const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
+
 export function isSupportedLlmProvider(
   value: string,
 ): value is SupportedLlmProvider {
@@ -84,7 +86,7 @@ export function getEffectiveRuntimeBaseUrl(
     return null;
   }
 
-  return normalizeBaseUrl(value);
+  return normalizeBaseUrl(value) ?? DEFAULT_OPENAI_BASE_URL;
 }
 
 export function buildDefaultDisplayName(
