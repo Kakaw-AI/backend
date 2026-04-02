@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { LlmConnectionStatus } from '@prisma/client';
+import { LlmConnectionStatus, LlmProvider } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   SupportedLlmProvider,
@@ -103,6 +103,24 @@ export class LlmConnectionsRepository {
         },
       })
       .then((count) => count > 0);
+  }
+
+  findByDisplayNameForUser(userId: string, displayName: string) {
+    return this.prisma.llmConnection.findFirst({
+      where: { userId, displayName },
+      select: { id: true },
+    });
+  }
+
+  findByProviderAndLastFourForUser(
+    userId: string,
+    provider: LlmProvider,
+    apiKeyLastFour: string,
+  ) {
+    return this.prisma.llmConnection.findFirst({
+      where: { userId, provider, apiKeyLastFour },
+      select: { id: true },
+    });
   }
 
   createPending(input: CreatePendingLlmConnectionInput) {
