@@ -10,6 +10,7 @@ import {
   SupportedLlmProvider,
   buildDefaultDisplayName,
   providerUsesLinkedAccount,
+  toPrismaLlmProvider,
 } from './llm-connections.types';
 
 type ProviderValidationRequest = {
@@ -90,6 +91,32 @@ export class LlmConnectionsService {
 
     if (!usesLinkedAccount && !apiKey) {
       throw new BadRequestException('apiKey is required for this provider.');
+    }
+
+    // Check display name uniqueness
+    const existingByName = await this.llmConnectionsRepository.findByDisplayNameForUser(
+      userId,
+      displayName,
+    );
+    if (existingByName) {
+      throw new BadRequestException(
+        `An LLM connection named "${displayName}" already exists.`,
+      );
+    }
+
+    // Check API key uniqueness (only when an API key is provided)
+    if (apiKey) {
+      const apiKeyLastFour = apiKey.slice(-4);
+      const existingByKey = await this.llmConnectionsRepository.findByProviderAndLastFourForUser(
+        userId,
+        toPrismaLlmProvider(input.provider),
+        apiKeyLastFour,
+      );
+      if (existingByKey) {
+        throw new BadRequestException(
+          `This API key is already registered for ${input.provider}.`,
+        );
+      }
     }
 
     const pendingConnection = await this.llmConnectionsRepository.createPending({
