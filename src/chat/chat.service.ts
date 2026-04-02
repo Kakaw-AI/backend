@@ -13,6 +13,8 @@ import {
   CreateConversationInput,
   TokenUsage,
   UpdateConversationRuntimeInput,
+  buildRuntimeUnavailableException,
+  toRuntimeUnavailableException,
 } from './chat.types';
 
 @Injectable()
@@ -66,13 +68,13 @@ export class ChatService {
     }
 
     if (!conversation.runtime.isAvailableForChat) {
-      throw this.buildRuntimeUnavailableException(
+      throw buildRuntimeUnavailableException(
         conversation.runtime.warning ?? 'Selected LLM runtime is unavailable.',
       );
     }
 
     if (!conversation.llmConnectionId) {
-      throw this.buildRuntimeUnavailableException(
+      throw buildRuntimeUnavailableException(
         'Selected LLM runtime is unavailable.',
       );
     }
@@ -87,13 +89,13 @@ export class ChatService {
         request,
       );
     } catch (error) {
-      const normalizedError = normalizeApiError(
+      const runtimeUnavailable = toRuntimeUnavailableException(
         error,
         'Selected LLM runtime is unavailable.',
       );
 
-      if (this.isRuntimeUnavailableError(normalizedError)) {
-        throw this.buildRuntimeUnavailableException(normalizedError.message);
+      if (runtimeUnavailable) {
+        throw runtimeUnavailable;
       }
 
       throw error;
@@ -239,36 +241,5 @@ export class ChatService {
     } finally {
       this.ephemeralStateService.finish(requestId);
     }
-  }
-
-  private buildRuntimeUnavailableException(message: string) {
-    return new BadRequestException({
-      error: {
-        message,
-        code: 'LLM_CONNECTION_UNAVAILABLE',
-        statusCode: 400,
-        retryable: false,
-      },
-    });
-  }
-
-  private isRuntimeUnavailableError(error: AgentErrorInfo) {
-    if (error.code === 'LLM_CONNECTION_UNAVAILABLE') {
-      return true;
-    }
-
-    return (
-      error.message === 'Selected database source could not be found.' ||
-      error.message ===
-        'Selected database source must finish Vanna sync before starting a chat.' ||
-      error.message === 'Selected LLM connection could not be found.' ||
-      error.message ===
-        'Selected LLM connection must be active before starting a chat.' ||
-      error.message ===
-        'Selected LLM connection must be healthy before starting a chat.' ||
-      error.message ===
-        'A linked GitHub account with an access token is required for this runtime.' ||
-      error.message === 'Selected LLM connection is missing runtime credentials.'
-    );
   }
 }

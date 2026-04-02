@@ -20,6 +20,8 @@ import {
   PersistedConversationMessage,
   TokenUsage,
   UpdateConversationRuntimeInput,
+  buildRuntimeUnavailableException,
+  toRuntimeUnavailableException,
 } from './chat.types';
 
 type ConversationSummaryRecord = Awaited<
@@ -111,10 +113,26 @@ export class ConversationService {
       throw new BadRequestException('llmConnectionId is required');
     }
 
-    const selectedConnection = await this.llmConnectionsService.getRuntimeForUser(
-      userId,
-      llmConnectionId,
-    );
+    let selectedConnection: Awaited<
+      ReturnType<LlmConnectionsService['getRuntimeForUser']>
+    >;
+    try {
+      selectedConnection = await this.llmConnectionsService.getRuntimeForUser(
+        userId,
+        llmConnectionId,
+      );
+    } catch (error) {
+      const runtimeUnavailable = toRuntimeUnavailableException(
+        error,
+        'Selected LLM connection is unavailable.',
+      );
+
+      if (runtimeUnavailable) {
+        throw runtimeUnavailable;
+      }
+
+      throw error;
+    }
 
     if (
       llmModelOverride &&
@@ -133,7 +151,7 @@ export class ConversationService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2003'
       ) {
-        throw this.buildRuntimeUnavailableException(
+        throw buildRuntimeUnavailableException(
           'Selected LLM connection could not be found.',
         );
       }
@@ -333,18 +351,6 @@ export class ConversationService {
       warning: null,
     };
   }
-
-  private buildRuntimeUnavailableException(message: string) {
-    return new BadRequestException({
-      error: {
-        message,
-        code: 'LLM_CONNECTION_UNAVAILABLE',
-        statusCode: 400,
-        retryable: false,
-      },
-    });
-  }
-
   private resolveDatabaseLabel(provider: string, sqliteOriginalFilename?: string | null) {
     if (provider === 'sqlite') {
       return sqliteOriginalFilename?.trim() || 'SQLite upload';

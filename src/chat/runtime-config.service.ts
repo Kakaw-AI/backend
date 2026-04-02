@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type { Request } from 'express';
 import { AuthService } from '../auth/auth.service';
 import { DatabaseSourcesService } from '../database-sources/database-sources.service';
@@ -6,6 +6,7 @@ import { LlmConnectionsService } from '../llm-connections/llm-connections.servic
 import {
   AgentDatabaseRuntime,
   AgentLlmRuntime,
+  buildRuntimeUnavailableException,
 } from './chat.types';
 
 @Injectable()
@@ -71,7 +72,7 @@ export class RuntimeConfigService {
       const tokens = await this.authService.getAccessToken(request, 'github');
       const accessToken = tokens?.accessToken?.trim();
       if (!accessToken) {
-        throw new BadRequestException(
+        throw buildRuntimeUnavailableException(
           'A linked GitHub account with an access token is required for this runtime.',
         );
       }
@@ -85,7 +86,7 @@ export class RuntimeConfigService {
     }
 
     if (!connection.apiKey?.trim()) {
-      throw new BadRequestException(
+      throw buildRuntimeUnavailableException(
         'Selected LLM connection is missing runtime credentials.',
       );
     }

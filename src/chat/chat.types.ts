@@ -1,9 +1,15 @@
 import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
+import {
   LlmConnectionStatus,
   MessageArtifactType,
   MessageRole,
   MessageStatus,
 } from '@prisma/client';
+import { normalizeApiError } from '../common/errors/error-response';
 import { SupportedLlmProvider } from '../llm-connections/llm-connections.types';
 
 export type AgentHistoryMessage = {
@@ -290,3 +296,36 @@ export type ConversationMessageResponse = {
 export type ConversationDetailsResponse = ConversationSummaryResponse & {
   messages: ConversationMessageResponse[];
 };
+
+export const RUNTIME_UNAVAILABLE_ERROR_CODE = 'LLM_CONNECTION_UNAVAILABLE';
+
+export function buildRuntimeUnavailableException(message: string) {
+  return new BadRequestException({
+    error: {
+      message,
+      code: RUNTIME_UNAVAILABLE_ERROR_CODE,
+      statusCode: HttpStatus.BAD_REQUEST,
+      retryable: false,
+    },
+  });
+}
+
+export function toRuntimeUnavailableException(
+  error: unknown,
+  fallbackMessage = 'Selected LLM runtime is unavailable.',
+) {
+  const normalized = normalizeApiError(error, fallbackMessage);
+
+  if (normalized.code === RUNTIME_UNAVAILABLE_ERROR_CODE) {
+    return buildRuntimeUnavailableException(normalized.message);
+  }
+
+  if (
+    error instanceof HttpException &&
+    normalized.statusCode === HttpStatus.BAD_REQUEST
+  ) {
+    return buildRuntimeUnavailableException(normalized.message);
+  }
+
+  return null;
+}
