@@ -60,6 +60,12 @@ export type AgentSyncResponse = {
   error?: string;
 };
 
+export type TokenUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+};
+
 export type MessageStartedEvent = {
   type: 'message_started';
   data: {
@@ -114,6 +120,7 @@ export type MessageCompletedEvent = {
   data: {
     messageId: string;
     content: string;
+    tokenUsage?: TokenUsage;
   };
 };
 
@@ -132,6 +139,14 @@ export type AgentStepEvent = {
   };
 };
 
+export type SuggestionsGeneratedEvent = {
+  type: 'suggestions_generated';
+  data: {
+    messageId: string;
+    suggestions: string[];
+  };
+};
+
 export type AgentStreamEvent =
   | MessageStartedEvent
   | MessageDeltaEvent
@@ -141,7 +156,8 @@ export type AgentStreamEvent =
   | ArtifactEvent
   | MessageCompletedEvent
   | MessageFailedEvent
-  | AgentStepEvent;
+  | AgentStepEvent
+  | SuggestionsGeneratedEvent;
 
 export type CreateConversationInput = {
   databaseSourceId: string;
@@ -172,6 +188,8 @@ export type PersistedConversationMessage = {
   status: MessageStatus;
   content: string;
   error: string | null;
+  tokenUsage: TokenUsage | null;
+  suggestions: string[];
   createdAt: Date;
   updatedAt: Date;
   artifacts: PersistedMessageArtifact[];

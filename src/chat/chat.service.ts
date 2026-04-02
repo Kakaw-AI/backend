@@ -6,7 +6,7 @@ import { RuntimeConfigService } from './runtime-config.service';
 import { ArtifactInput, ArtifactService } from './artifact.service';
 import { ConversationService } from './conversation.service';
 import { MessageStreamingService } from './message-streaming.service';
-import { AgentStreamEvent, CreateConversationInput } from './chat.types';
+import { AgentStreamEvent, CreateConversationInput, TokenUsage } from './chat.types';
 
 @Injectable()
 export class ChatService {
@@ -65,6 +65,8 @@ export class ChatService {
     let assistantContent = '';
     let failedMessage: string | null = null;
     let didComplete = false;
+    let tokenUsage: TokenUsage | null = null;
+    let suggestions: string[] = [];
 
     this.ephemeralStateService.start(requestId, conversationId, userId);
 
@@ -101,10 +103,11 @@ export class ChatService {
             break;
           case 'message_completed':
             assistantContent = event.data.content || assistantContent;
+            tokenUsage = event.data.tokenUsage ?? null;
             didComplete = true;
             yield {
               type: 'message_completed',
-              data: { messageId: assistantMessage.id, content: assistantContent },
+              data: { messageId: assistantMessage.id, content: assistantContent, tokenUsage: tokenUsage ?? undefined },
             };
             break;
           case 'message_failed':
@@ -112,6 +115,13 @@ export class ChatService {
             yield {
               type: 'message_failed',
               data: { messageId: assistantMessage.id, error: failedMessage },
+            };
+            break;
+          case 'suggestions_generated':
+            suggestions = Array.isArray(event.data.suggestions) ? event.data.suggestions : [];
+            yield {
+              type: 'suggestions_generated',
+              data: { messageId: assistantMessage.id, suggestions },
             };
             break;
           default:
@@ -140,7 +150,10 @@ export class ChatService {
         };
       }
 
-      await this.conversationService.completeMessage(assistantMessage.id, assistantContent);
+      await this.conversationService.completeMessage(assistantMessage.id, assistantContent, {
+        tokenUsage,
+        suggestions,
+      });
       await this.artifactService.saveArtifacts(assistantMessage.id, artifactBuffer);
     } catch (error) {
       const message =
