@@ -93,6 +93,8 @@ export class LlmConnectionsService {
       throw new BadRequestException('apiKey is required for this provider.');
     }
 
+    const apiKeyLastFour = apiKey ? apiKey.slice(-4) : undefined;
+
     // Check display name uniqueness
     const existingByName = await this.llmConnectionsRepository.findByDisplayNameForUser(
       userId,
@@ -106,7 +108,6 @@ export class LlmConnectionsService {
 
     // Check API key uniqueness (only when an API key is provided)
     if (apiKey) {
-      const apiKeyLastFour = apiKey.slice(-4);
       const existingByKey = await this.llmConnectionsRepository.findByProviderAndLastFourForUser(
         userId,
         toPrismaLlmProvider(input.provider),
@@ -125,7 +126,7 @@ export class LlmConnectionsService {
       displayName,
       defaultModel,
       encryptedApiKey: apiKey ? this.secretsService.encrypt(apiKey) : undefined,
-      apiKeyLastFour: apiKey ? apiKey.slice(-4) : undefined,
+      apiKeyLastFour,
       usesLinkedAccount,
       linkedProviderId: usesLinkedAccount ? 'github' : undefined,
       baseUrl: input.baseUrl?.trim() || undefined,
