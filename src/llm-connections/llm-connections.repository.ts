@@ -107,7 +107,11 @@ export class LlmConnectionsRepository {
 
   findByDisplayNameForUser(userId: string, displayName: string) {
     return this.prisma.llmConnection.findFirst({
-      where: { userId, displayName },
+      where: {
+        userId,
+        displayName,
+        status: { not: LlmConnectionStatus.FAILED },
+      },
       select: { id: true },
     });
   }
@@ -118,7 +122,12 @@ export class LlmConnectionsRepository {
     apiKeyLastFour: string,
   ) {
     return this.prisma.llmConnection.findFirst({
-      where: { userId, provider, apiKeyLastFour },
+      where: {
+        userId,
+        provider,
+        apiKeyLastFour,
+        status: { not: LlmConnectionStatus.FAILED },
+      },
       select: { id: true },
     });
   }
