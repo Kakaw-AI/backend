@@ -114,14 +114,10 @@ export class ConversationService {
     }
 
     if (llmConnectionId) {
-      const availableConnections = await this.llmConnectionsService.listForUser(userId);
-      const selectedConnection = availableConnections.find(
-        (candidate) => candidate.id === llmConnectionId,
+      const selectedConnection = await this.llmConnectionsService.getRuntimeForUser(
+        userId,
+        llmConnectionId,
       );
-
-      if (!selectedConnection) {
-        throw new BadRequestException('Selected LLM connection could not be found.');
-      }
 
       nextLlmConnectionId = selectedConnection.id;
 
