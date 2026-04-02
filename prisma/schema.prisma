@@ -137,20 +137,21 @@ model DatabaseSource {
 }
 
 model LlmConnection {
-  id              String              @id @default(cuid())
-  provider        LlmProvider
-  status          LlmConnectionStatus @default(PENDING)
-  displayName     String
-  defaultModel    String
-  encryptedApiKey String?
-  apiKeyLastFour  String?
+  id                String              @id @default(cuid())
+  provider          LlmProvider
+  status            LlmConnectionStatus @default(PENDING)
+  displayName       String
+  defaultModel      String
+  encryptedApiKey   String?
+  apiKeyLastFour    String?
   usesLinkedAccount Boolean           @default(false)
-  linkedProviderId String?
-  baseUrl         String?
-  lastError       String?
-  lastTestedAt    DateTime?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  linkedProviderId  String?
+  baseUrl           String?
+  isActive          Boolean             @default(true)
+  lastError         String?
+  lastTestedAt      DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -163,6 +164,7 @@ model Conversation {
   id               String         @id @default(cuid())
   title            String
   lastMessageAt    DateTime?
+  llmModelOverride String?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
@@ -170,8 +172,8 @@ model Conversation {
   user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   databaseSourceId String
   databaseSource   DatabaseSource @relation(fields: [databaseSourceId], references: [id], onDelete: Cascade)
-  llmConnectionId  String
-  llmConnection    LlmConnection  @relation(fields: [llmConnectionId], references: [id], onDelete: Cascade)
+  llmConnectionId  String?
+  llmConnection    LlmConnection? @relation(fields: [llmConnectionId], references: [id], onDelete: SetNull)
   messages         Message[]
 
   @@index([userId, updatedAt])
