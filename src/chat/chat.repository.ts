@@ -6,6 +6,7 @@ import {
 } from '@prisma/client';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { TokenUsage } from './chat.types';
 
 type CreateConversationRecordInput = {
   userId: string;
@@ -68,6 +69,8 @@ export class ChatRepository {
             status: true,
             content: true,
             error: true,
+            tokenUsage: true,
+            suggestions: true,
             createdAt: true,
             updatedAt: true,
             artifacts: {
@@ -139,13 +142,19 @@ export class ChatRepository {
     });
   }
 
-  completeMessage(messageId: string, content: string) {
+  completeMessage(
+    messageId: string,
+    content: string,
+    meta: { tokenUsage: TokenUsage | null; suggestions: string[] },
+  ) {
     return this.prisma.message.update({
       where: { id: messageId },
       data: {
         content,
         status: MessageStatus.COMPLETED,
         error: null,
+        tokenUsage: meta.tokenUsage ?? undefined,
+        suggestions: meta.suggestions,
       },
       select: {
         id: true,

@@ -4,7 +4,7 @@ import { DatabaseSourcesService } from '../database-sources/database-sources.ser
 import { fromPrismaLlmProvider } from '../llm-connections/llm-connections.types';
 import { LlmConnectionsService } from '../llm-connections/llm-connections.service';
 import { ChatRepository } from './chat.repository';
-import { CreateConversationInput, PersistedConversationMessage } from './chat.types';
+import { CreateConversationInput, PersistedConversationMessage, TokenUsage } from './chat.types';
 
 @Injectable()
 export class ConversationService {
@@ -52,7 +52,7 @@ export class ConversationService {
     return {
       ...this.toConversationSummary(conversation),
       messages: conversation.messages.map((message) =>
-        this.toConversationMessage(message),
+        this.toConversationMessage(message as unknown as PersistedConversationMessage),
       ),
     };
   }
@@ -83,8 +83,12 @@ export class ConversationService {
     return this.chatRepository.findRecentHistory(conversationId, limit);
   }
 
-  async completeMessage(messageId: string, content: string) {
-    return this.chatRepository.completeMessage(messageId, content);
+  async completeMessage(
+    messageId: string,
+    content: string,
+    meta: { tokenUsage: TokenUsage | null; suggestions: string[] },
+  ) {
+    return this.chatRepository.completeMessage(messageId, content, meta);
   }
 
   async failMessage(messageId: string, error: string, content: string) {
@@ -136,6 +140,8 @@ export class ConversationService {
       status: message.status,
       content: message.content,
       error: message.error,
+      tokenUsage: message.tokenUsage,
+      suggestions: message.suggestions,
       createdAt: message.createdAt.toISOString(),
       updatedAt: message.updatedAt.toISOString(),
       artifacts: message.artifacts.map((artifact) => ({
