@@ -133,6 +133,22 @@ export class ConversationService {
     };
   }
 
+  private static toTokenUsage(raw: unknown): TokenUsage | null {
+    if (
+      raw != null &&
+      typeof raw === 'object' &&
+      'inputTokens' in raw &&
+      'outputTokens' in raw &&
+      'totalTokens' in raw &&
+      typeof (raw as Record<string, unknown>).inputTokens === 'number' &&
+      typeof (raw as Record<string, unknown>).outputTokens === 'number' &&
+      typeof (raw as Record<string, unknown>).totalTokens === 'number'
+    ) {
+      return raw as TokenUsage;
+    }
+    return null;
+  }
+
   private toConversationMessage(message: PersistedConversationMessage) {
     return {
       id: message.id,
@@ -140,7 +156,7 @@ export class ConversationService {
       status: message.status,
       content: message.content,
       error: message.error,
-      tokenUsage: message.tokenUsage,
+      tokenUsage: ConversationService.toTokenUsage(message.tokenUsage),
       suggestions: message.suggestions,
       createdAt: message.createdAt.toISOString(),
       updatedAt: message.updatedAt.toISOString(),
