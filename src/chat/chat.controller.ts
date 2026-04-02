@@ -16,6 +16,8 @@ import {
   CreateConversationBody,
   CreateConversationInput,
   SendConversationMessageBody,
+  UpdateConversationRuntimeBody,
+  UpdateConversationRuntimeInput,
 } from './chat.types';
 
 @Controller('chat')
@@ -43,6 +45,19 @@ export class ChatController {
     return this.chatService.createConversation(user.id, this.toCreateConversationInput(body));
   }
 
+  @Post('conversations/:id/runtime')
+  updateConversationRuntime(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: UpdateConversationRuntimeBody,
+  ) {
+    return this.chatService.updateConversationRuntime(
+      user.id,
+      this.toConversationId(id),
+      this.toUpdateConversationRuntimeInput(body),
+    );
+  }
+
   @Post('conversations/:id/messages/stream')
   async streamConversationMessage(
     @CurrentUser() user: AuthUser,
@@ -57,16 +72,23 @@ export class ChatController {
       throw new BadRequestException('content is required');
     }
 
+    const stream = this.chatService.streamConversationMessage(
+      user.id,
+      request,
+      this.toConversationId(id),
+      content,
+    );
+    const firstEvent = await stream.next();
+
     response.setHeader('content-type', 'application/x-ndjson; charset=utf-8');
     response.setHeader('cache-control', 'no-cache, no-transform');
     response.setHeader('connection', 'keep-alive');
 
-    for await (const event of this.chatService.streamConversationMessage(
-      user.id,
-      request,
-      id,
-      content,
-    )) {
+    if (!firstEvent.done) {
+      response.write(`${JSON.stringify(firstEvent.value)}\n`);
+    }
+
+    for await (const event of stream) {
       response.write(`${JSON.stringify(event)}\n`);
     }
 
@@ -98,5 +120,44 @@ export class ChatController {
       llmConnectionId,
       title: typeof body.title === 'string' ? body.title.trim() : undefined,
     };
+  }
+
+  private toUpdateConversationRuntimeInput(
+    body: UpdateConversationRuntimeBody,
+  ): UpdateConversationRuntimeInput {
+    const llmConnectionId =
+      typeof body.llmConnectionId === 'string'
+        ? body.llmConnectionId.trim()
+        : body.llmConnectionId === null
+          ? null
+          : '';
+    const llmModelOverride =
+      typeof body.llmModelOverride === 'string'
+        ? body.llmModelOverride.trim() || null
+        : body.llmModelOverride == null
+          ? null
+          : undefined;
+
+    if (llmConnectionId === '') {
+      throw new BadRequestException('llmConnectionId is required');
+    }
+
+    if (llmModelOverride === undefined) {
+      throw new BadRequestException('llmModelOverride must be a string or null');
+    }
+
+    return {
+      llmConnectionId,
+      llmModelOverride,
+    };
+  }
+
+  private toConversationId(id: string) {
+    const conversationId = id.trim();
+    if (!conversationId) {
+      throw new BadRequestException('id is required');
+    }
+
+    return conversationId;
   }
 }

@@ -1,5 +1,4 @@
 import {
-  Conversation,
   MessageArtifactType,
   MessageRole,
   MessageStatus,
@@ -14,6 +13,11 @@ type CreateConversationRecordInput = {
   title: string;
   databaseSourceId: string;
   llmConnectionId: string;
+};
+
+type UpdateConversationRuntimeRecordInput = {
+  llmConnectionId: string | null;
+  llmModelOverride: string | null;
 };
 
 type CreateMessageRecordInput = {
@@ -58,6 +62,7 @@ const conversationSummarySelect = {
   createdAt: true,
   updatedAt: true,
   databaseSourceId: true,
+  llmModelOverride: true,
   llmConnectionId: true,
   databaseSource: {
     select: {
@@ -81,6 +86,7 @@ const conversationSummarySelect = {
       apiKeyLastFour: true,
       usesLinkedAccount: true,
       linkedProviderId: true,
+      isActive: true,
       lastError: true,
       lastTestedAt: true,
       createdAt: true,
@@ -135,13 +141,22 @@ export class ChatRepository {
         id: conversationId,
         userId,
       },
+      select: conversationSummarySelect,
+    });
+  }
+
+  updateConversationRuntime(
+    conversationId: string,
+    input: UpdateConversationRuntimeRecordInput,
+  ) {
+    return this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        llmConnectionId: input.llmConnectionId,
+        llmModelOverride: input.llmModelOverride,
+      },
       select: {
         id: true,
-        title: true,
-        databaseSourceId: true,
-        llmConnectionId: true,
-        createdAt: true,
-        updatedAt: true,
       },
     });
   }

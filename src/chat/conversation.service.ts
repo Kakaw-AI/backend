@@ -1,10 +1,28 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { MessageRole, MessageStatus } from '@prisma/client';
+import {
+  LlmConnectionStatus,
+  MessageRole,
+  MessageStatus,
+} from '@prisma/client';
 import { DatabaseSourcesService } from '../database-sources/database-sources.service';
 import { fromPrismaLlmProvider } from '../llm-connections/llm-connections.types';
 import { LlmConnectionsService } from '../llm-connections/llm-connections.service';
 import { ChatRepository } from './chat.repository';
-import { CreateConversationInput, PersistedConversationMessage, TokenUsage } from './chat.types';
+import {
+  ConversationDetailsResponse,
+  ConversationLlmConnectionResponse,
+  ConversationMessageResponse,
+  ConversationRuntimeState,
+  ConversationSummaryResponse,
+  CreateConversationInput,
+  PersistedConversationMessage,
+  TokenUsage,
+  UpdateConversationRuntimeInput,
+} from './chat.types';
+
+type ConversationSummaryRecord = Awaited<
+  ReturnType<ChatRepository['createConversation']>
+>;
 
 @Injectable()
 export class ConversationService {
@@ -39,7 +57,10 @@ export class ConversationService {
     return conversations.map((conversation) => this.toConversationSummary(conversation));
   }
 
-  async getConversation(userId: string, conversationId: string) {
+  async getConversation(
+    userId: string,
+    conversationId: string,
+  ): Promise<ConversationDetailsResponse> {
     const conversation = await this.chatRepository.findConversationForUser(
       userId,
       conversationId,
@@ -58,7 +79,66 @@ export class ConversationService {
   }
 
   async findRuntime(userId: string, conversationId: string) {
-    return this.chatRepository.findConversationRuntime(userId, conversationId);
+    const conversation = await this.chatRepository.findConversationRuntime(
+      userId,
+      conversationId,
+    );
+
+    return conversation ? this.toConversationSummary(conversation) : null;
+  }
+
+  async updateConversationRuntime(
+    userId: string,
+    conversationId: string,
+    input: UpdateConversationRuntimeInput,
+  ) {
+    const conversation = await this.chatRepository.findConversationRuntime(
+      userId,
+      conversationId,
+    );
+
+    if (!conversation) {
+      throw new BadRequestException('Conversation could not be found.');
+    }
+
+    const llmConnectionId = input.llmConnectionId?.trim() || null;
+    const llmModelOverride = input.llmModelOverride?.trim() || null;
+
+    let nextLlmConnectionId: string | null = llmConnectionId;
+    let nextLlmModelOverride = llmModelOverride;
+
+    if (!llmConnectionId && llmModelOverride) {
+      throw new BadRequestException(
+        'llmConnectionId is required when setting llmModelOverride.',
+      );
+    }
+
+    if (llmConnectionId) {
+      const availableConnections = await this.llmConnectionsService.listForUser(userId);
+      const selectedConnection = availableConnections.find(
+        (candidate) => candidate.id === llmConnectionId,
+      );
+
+      if (!selectedConnection) {
+        throw new BadRequestException('Selected LLM connection could not be found.');
+      }
+
+      nextLlmConnectionId = selectedConnection.id;
+
+      if (
+        llmModelOverride &&
+        llmModelOverride === selectedConnection.defaultModel.trim()
+      ) {
+        nextLlmModelOverride = null;
+      }
+    }
+
+    await this.chatRepository.updateConversationRuntime(conversationId, {
+      llmConnectionId: nextLlmConnectionId,
+      llmModelOverride: nextLlmModelOverride,
+    });
+
+    return this.getConversation(userId, conversationId);
   }
 
   async createMessagePair(conversationId: string, content: string) {
@@ -96,8 +176,11 @@ export class ConversationService {
   }
 
   private toConversationSummary(
-    conversation: Awaited<ReturnType<ChatRepository['createConversation']>>,
-  ) {
+    conversation: ConversationSummaryRecord,
+  ): ConversationSummaryResponse {
+    const llmModelOverride =
+      conversation.llmModelOverride?.trim() || null;
+
     return {
       id: conversation.id,
       title: conversation.title,
@@ -106,9 +189,10 @@ export class ConversationService {
       updatedAt: conversation.updatedAt.toISOString(),
       databaseSourceId: conversation.databaseSourceId,
       llmConnectionId: conversation.llmConnectionId,
+      llmModelOverride,
       databaseSource: {
         id: conversation.databaseSource.id,
-        provider: conversation.databaseSource.provider,
+        provider: conversation.databaseSource.provider as 'postgresql' | 'sqlite',
         status: conversation.databaseSource.status,
         sqliteOriginalFilename: conversation.databaseSource.sqliteOriginalFilename,
         lastError: conversation.databaseSource.lastError,
@@ -116,20 +200,8 @@ export class ConversationService {
         createdAt: conversation.databaseSource.createdAt.toISOString(),
         updatedAt: conversation.databaseSource.updatedAt.toISOString(),
       },
-      llmConnection: {
-        id: conversation.llmConnection.id,
-        provider: fromPrismaLlmProvider(conversation.llmConnection.provider),
-        status: conversation.llmConnection.status,
-        displayName: conversation.llmConnection.displayName,
-        defaultModel: conversation.llmConnection.defaultModel,
-        apiKeyLastFour: conversation.llmConnection.apiKeyLastFour,
-        usesLinkedAccount: conversation.llmConnection.usesLinkedAccount,
-        linkedProviderId: conversation.llmConnection.linkedProviderId,
-        lastError: conversation.llmConnection.lastError,
-        lastTestedAt: conversation.llmConnection.lastTestedAt?.toISOString() ?? null,
-        createdAt: conversation.llmConnection.createdAt.toISOString(),
-        updatedAt: conversation.llmConnection.updatedAt.toISOString(),
-      },
+      llmConnection: this.toConversationLlmConnection(conversation.llmConnection),
+      runtime: this.toConversationRuntime(conversation.llmConnection, llmModelOverride),
     };
   }
 
@@ -149,10 +221,12 @@ export class ConversationService {
     return null;
   }
 
-  private toConversationMessage(message: PersistedConversationMessage) {
+  private toConversationMessage(
+    message: PersistedConversationMessage,
+  ): ConversationMessageResponse {
     return {
       id: message.id,
-      role: message.role.toLowerCase(),
+      role: message.role.toLowerCase() as 'user' | 'assistant' | 'system',
       status: message.status,
       content: message.content,
       error: message.error,
@@ -166,6 +240,78 @@ export class ConversationService {
         payload: artifact.payload,
         createdAt: artifact.createdAt.toISOString(),
       })),
+    };
+  }
+
+  private toConversationLlmConnection(
+    llmConnection: ConversationSummaryRecord['llmConnection'],
+  ): ConversationLlmConnectionResponse | null {
+    if (!llmConnection) {
+      return null;
+    }
+
+    return {
+      id: llmConnection.id,
+      provider: fromPrismaLlmProvider(llmConnection.provider),
+      status: llmConnection.status,
+      displayName: llmConnection.displayName,
+      defaultModel: llmConnection.defaultModel,
+      apiKeyLastFour: llmConnection.apiKeyLastFour,
+      usesLinkedAccount: llmConnection.usesLinkedAccount,
+      linkedProviderId: llmConnection.linkedProviderId,
+      isActive: llmConnection.isActive,
+      lastError: llmConnection.lastError,
+      lastTestedAt: llmConnection.lastTestedAt?.toISOString() ?? null,
+      createdAt: llmConnection.createdAt.toISOString(),
+      updatedAt: llmConnection.updatedAt.toISOString(),
+    };
+  }
+
+  private toConversationRuntime(
+    llmConnection: ConversationSummaryRecord['llmConnection'],
+    llmModelOverride: string | null,
+  ): ConversationRuntimeState {
+    const effectiveModel = llmModelOverride ?? llmConnection?.defaultModel ?? null;
+
+    if (!llmConnection) {
+      return {
+        effectiveModel,
+        isMissing: true,
+        isActive: false,
+        isAvailableForChat: false,
+        warning:
+          'This conversation’s saved LLM connection was deleted. Select another connection to continue.',
+      };
+    }
+
+    if (!llmConnection.isActive) {
+      return {
+        effectiveModel,
+        isMissing: false,
+        isActive: false,
+        isAvailableForChat: false,
+        warning:
+          'This conversation uses a deactivated LLM connection. Reactivate it or switch to another saved connection to continue.',
+      };
+    }
+
+    if (llmConnection.status !== LlmConnectionStatus.SUCCESS) {
+      return {
+        effectiveModel,
+        isMissing: false,
+        isActive: true,
+        isAvailableForChat: false,
+        warning:
+          'This conversation’s LLM connection is not healthy enough to send messages. Fix or switch the connection to continue.',
+      };
+    }
+
+    return {
+      effectiveModel,
+      isMissing: false,
+      isActive: true,
+      isAvailableForChat: true,
+      warning: null,
     };
   }
 

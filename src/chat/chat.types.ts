@@ -1,4 +1,9 @@
-import { MessageArtifactType, MessageRole, MessageStatus } from '@prisma/client';
+import {
+  LlmConnectionStatus,
+  MessageArtifactType,
+  MessageRole,
+  MessageStatus,
+} from '@prisma/client';
 import { SupportedLlmProvider } from '../llm-connections/llm-connections.types';
 
 export type AgentHistoryMessage = {
@@ -185,6 +190,16 @@ export type SendConversationMessageBody = {
   content?: unknown;
 };
 
+export type UpdateConversationRuntimeInput = {
+  llmConnectionId: string | null;
+  llmModelOverride: string | null;
+};
+
+export type UpdateConversationRuntimeBody = {
+  llmConnectionId?: unknown;
+  llmModelOverride?: unknown;
+};
+
 export type PersistedMessageArtifact = {
   id: string;
   type: MessageArtifactType;
@@ -203,4 +218,75 @@ export type PersistedConversationMessage = {
   createdAt: Date;
   updatedAt: Date;
   artifacts: PersistedMessageArtifact[];
+};
+
+export type ConversationDatabaseSourceResponse = {
+  id: string;
+  provider: 'postgresql' | 'sqlite';
+  status: string;
+  sqliteOriginalFilename: string | null;
+  lastError: string | null;
+  lastTestedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ConversationLlmConnectionResponse = {
+  id: string;
+  provider: SupportedLlmProvider;
+  status: LlmConnectionStatus;
+  displayName: string;
+  defaultModel: string;
+  apiKeyLastFour: string | null;
+  usesLinkedAccount: boolean;
+  linkedProviderId: string | null;
+  isActive: boolean;
+  lastError: string | null;
+  lastTestedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ConversationRuntimeState = {
+  effectiveModel: string | null;
+  isMissing: boolean;
+  isActive: boolean;
+  isAvailableForChat: boolean;
+  warning: string | null;
+};
+
+export type ConversationSummaryResponse = {
+  id: string;
+  title: string;
+  lastMessageAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  databaseSourceId: string;
+  llmConnectionId: string | null;
+  llmModelOverride: string | null;
+  databaseSource: ConversationDatabaseSourceResponse;
+  llmConnection: ConversationLlmConnectionResponse | null;
+  runtime: ConversationRuntimeState;
+};
+
+export type ConversationMessageResponse = {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  status: MessageStatus;
+  content: string;
+  error: string | null;
+  tokenUsage: TokenUsage | null;
+  suggestions: string[];
+  createdAt: string;
+  updatedAt: string;
+  artifacts: Array<{
+    id: string;
+    type: MessageArtifactType;
+    payload: unknown;
+    createdAt: string;
+  }>;
+};
+
+export type ConversationDetailsResponse = ConversationSummaryResponse & {
+  messages: ConversationMessageResponse[];
 };

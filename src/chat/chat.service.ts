@@ -12,6 +12,7 @@ import {
   AgentStreamEvent,
   CreateConversationInput,
   TokenUsage,
+  UpdateConversationRuntimeInput,
 } from './chat.types';
 
 @Injectable()
@@ -36,6 +37,18 @@ export class ChatService {
     return this.conversationService.getConversation(userId, conversationId);
   }
 
+  async updateConversationRuntime(
+    userId: string,
+    conversationId: string,
+    input: UpdateConversationRuntimeInput,
+  ) {
+    return this.conversationService.updateConversationRuntime(
+      userId,
+      conversationId,
+      input,
+    );
+  }
+
   async *streamConversationMessage(
     userId: string,
     request: Request,
@@ -52,18 +65,43 @@ export class ChatService {
       throw new BadRequestException('Conversation could not be found.');
     }
 
+    if (!conversation.runtime.isAvailableForChat) {
+      throw new BadRequestException({
+        error: {
+          message:
+            conversation.runtime.warning ?? 'Selected LLM runtime is unavailable.',
+          code: 'LLM_CONNECTION_UNAVAILABLE',
+          statusCode: 400,
+          retryable: false,
+        },
+      });
+    }
+
+    if (!conversation.llmConnectionId) {
+      throw new BadRequestException({
+        error: {
+          message: 'Selected LLM runtime is unavailable.',
+          code: 'LLM_CONNECTION_UNAVAILABLE',
+          statusCode: 400,
+          retryable: false,
+        },
+      });
+    }
+
+    const runtime = await this.runtimeConfigService.resolve(
+      userId,
+      conversation.databaseSourceId,
+      conversation.llmConnectionId,
+      conversation.llmModelOverride,
+      request,
+    );
+
     const { assistantMessage } = await this.conversationService.createMessagePair(
       conversationId,
       trimmedContent,
     );
 
     const history = await this.conversationService.findRecentHistory(conversationId, 24);
-    const runtime = await this.runtimeConfigService.resolve(
-      userId,
-      conversation.databaseSourceId,
-      conversation.llmConnectionId,
-      request,
-    );
 
     const requestId = this.messageStreamingService.createRequestId();
     const artifactBuffer: ArtifactInput[] = [];
