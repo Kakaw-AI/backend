@@ -111,7 +111,7 @@ export class LlmConnectionsService {
       const existingByKey = await this.llmConnectionsRepository.findByProviderAndLastFourForUser(
         userId,
         toPrismaLlmProvider(input.provider),
-        apiKeyLastFour,
+        apiKey.slice(-4),
       );
       if (existingByKey) {
         throw new BadRequestException(

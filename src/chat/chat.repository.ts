@@ -3,6 +3,7 @@ import {
   MessageArtifactType,
   MessageRole,
   MessageStatus,
+  Prisma,
 } from '@prisma/client';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -29,6 +30,65 @@ type CreateArtifactRecordInput = {
   payload: object;
 };
 
+const conversationMessageSelect = {
+  id: true,
+  role: true,
+  status: true,
+  content: true,
+  error: true,
+  tokenUsage: true,
+  suggestions: true,
+  createdAt: true,
+  updatedAt: true,
+  artifacts: {
+    orderBy: { createdAt: 'asc' },
+    select: {
+      id: true,
+      type: true,
+      payload: true,
+      createdAt: true,
+    },
+  },
+} as const satisfies Prisma.MessageSelect;
+
+const conversationSummarySelect = {
+  id: true,
+  title: true,
+  lastMessageAt: true,
+  createdAt: true,
+  updatedAt: true,
+  databaseSourceId: true,
+  llmConnectionId: true,
+  databaseSource: {
+    select: {
+      id: true,
+      provider: true,
+      sqliteOriginalFilename: true,
+      status: true,
+      lastError: true,
+      lastTestedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  },
+  llmConnection: {
+    select: {
+      id: true,
+      provider: true,
+      status: true,
+      displayName: true,
+      defaultModel: true,
+      apiKeyLastFour: true,
+      usesLinkedAccount: true,
+      linkedProviderId: true,
+      lastError: true,
+      lastTestedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  },
+} as const satisfies Prisma.ConversationSelect;
+
 @Injectable()
 export class ChatRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -41,7 +101,7 @@ export class ChatRepository {
         databaseSourceId: input.databaseSourceId,
         llmConnectionId: input.llmConnectionId,
       },
-      select: this.conversationSummarySelect,
+      select: conversationSummarySelect,
     });
   }
 
@@ -49,7 +109,7 @@ export class ChatRepository {
     return this.prisma.conversation.findMany({
       where: { userId },
       orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
-      select: this.conversationSummarySelect,
+      select: conversationSummarySelect,
     });
   }
 
@@ -60,29 +120,10 @@ export class ChatRepository {
         userId,
       },
       select: {
-        ...this.conversationSummarySelect,
+        ...conversationSummarySelect,
         messages: {
           orderBy: { createdAt: 'asc' },
-          select: {
-            id: true,
-            role: true,
-            status: true,
-            content: true,
-            error: true,
-            tokenUsage: true,
-            suggestions: true,
-            createdAt: true,
-            updatedAt: true,
-            artifacts: {
-              orderBy: { createdAt: 'asc' },
-              select: {
-                id: true,
-                type: true,
-                payload: true,
-                createdAt: true,
-              },
-            },
-          },
+          select: conversationMessageSelect,
         },
       },
     });
@@ -153,7 +194,7 @@ export class ChatRepository {
         content,
         status: MessageStatus.COMPLETED,
         error: null,
-        tokenUsage: meta.tokenUsage ?? undefined,
+        tokenUsage: meta.tokenUsage ?? Prisma.JsonNull,
         suggestions: meta.suggestions,
       },
       select: {
@@ -231,42 +272,4 @@ export class ChatRepository {
       },
     });
   }
-
-  private readonly conversationSummarySelect = {
-    id: true,
-    title: true,
-    lastMessageAt: true,
-    createdAt: true,
-    updatedAt: true,
-    databaseSourceId: true,
-    llmConnectionId: true,
-    databaseSource: {
-      select: {
-        id: true,
-        provider: true,
-        sqliteOriginalFilename: true,
-        status: true,
-        lastError: true,
-        lastTestedAt: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    },
-    llmConnection: {
-      select: {
-        id: true,
-        provider: true,
-        status: true,
-        displayName: true,
-        defaultModel: true,
-        apiKeyLastFour: true,
-        usesLinkedAccount: true,
-        linkedProviderId: true,
-        lastError: true,
-        lastTestedAt: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    },
-  } satisfies Record<string, unknown>;
 }
