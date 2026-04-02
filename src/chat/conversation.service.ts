@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import {
+  DatabaseSourceStatus,
   LlmConnectionStatus,
   MessageRole,
   MessageStatus,
+  Prisma,
 } from '@prisma/client';
 import { DatabaseSourcesService } from '../database-sources/database-sources.service';
 import { fromPrismaLlmProvider } from '../llm-connections/llm-connections.types';
@@ -121,10 +123,23 @@ export class ConversationService {
       nextLlmModelOverride = null;
     }
 
-    await this.chatRepository.updateConversationRuntime(conversationId, {
-      llmConnectionId: selectedConnection.id,
-      llmModelOverride: nextLlmModelOverride,
-    });
+    try {
+      await this.chatRepository.updateConversationRuntime(conversationId, {
+        llmConnectionId: selectedConnection.id,
+        llmModelOverride: nextLlmModelOverride,
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        throw this.buildRuntimeUnavailableException(
+          'Selected LLM connection could not be found.',
+        );
+      }
+
+      throw error;
+    }
 
     return this.getConversation(userId, conversationId);
   }
@@ -189,7 +204,11 @@ export class ConversationService {
         updatedAt: conversation.databaseSource.updatedAt.toISOString(),
       },
       llmConnection: this.toConversationLlmConnection(conversation.llmConnection),
-      runtime: this.toConversationRuntime(conversation.llmConnection, llmModelOverride),
+      runtime: this.toConversationRuntime(
+        conversation.databaseSource,
+        conversation.llmConnection,
+        llmModelOverride,
+      ),
     };
   }
 
@@ -256,10 +275,22 @@ export class ConversationService {
   }
 
   private toConversationRuntime(
+    databaseSource: ConversationSummaryRecord['databaseSource'],
     llmConnection: ConversationSummaryRecord['llmConnection'],
     llmModelOverride: string | null,
   ): ConversationRuntimeState {
     const effectiveModel = llmModelOverride ?? llmConnection?.defaultModel ?? null;
+
+    if (databaseSource.status !== DatabaseSourceStatus.READY) {
+      return {
+        effectiveModel,
+        isMissing: !llmConnection,
+        isActive: llmConnection?.isActive ?? false,
+        isAvailableForChat: false,
+        warning:
+          'This conversation’s database source is not ready to chat. Re-sync or replace the database source to continue.',
+      };
+    }
 
     if (!llmConnection) {
       return {
@@ -301,6 +332,17 @@ export class ConversationService {
       isAvailableForChat: true,
       warning: null,
     };
+  }
+
+  private buildRuntimeUnavailableException(message: string) {
+    return new BadRequestException({
+      error: {
+        message,
+        code: 'LLM_CONNECTION_UNAVAILABLE',
+        statusCode: 400,
+        retryable: false,
+      },
+    });
   }
 
   private resolveDatabaseLabel(provider: string, sqliteOriginalFilename?: string | null) {

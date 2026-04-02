@@ -258,6 +258,9 @@ export class ChatService {
     }
 
     return (
+      error.message === 'Selected database source could not be found.' ||
+      error.message ===
+        'Selected database source must finish Vanna sync before starting a chat.' ||
       error.message === 'Selected LLM connection could not be found.' ||
       error.message ===
         'Selected LLM connection must be active before starting a chat.' ||
