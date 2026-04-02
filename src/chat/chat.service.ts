@@ -1,12 +1,18 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
 import { MessageArtifactType } from '@prisma/client';
+import { normalizeApiError } from '../common/errors/error-response';
 import { EphemeralStateService } from './ephemeral-state.service';
 import { RuntimeConfigService } from './runtime-config.service';
 import { ArtifactInput, ArtifactService } from './artifact.service';
 import { ConversationService } from './conversation.service';
 import { MessageStreamingService } from './message-streaming.service';
-import { AgentStreamEvent, CreateConversationInput, TokenUsage } from './chat.types';
+import {
+  AgentErrorInfo,
+  AgentStreamEvent,
+  CreateConversationInput,
+  TokenUsage,
+} from './chat.types';
 
 @Injectable()
 export class ChatService {
@@ -64,6 +70,7 @@ export class ChatService {
 
     let assistantContent = '';
     let failedMessage: string | null = null;
+    let failedErrorInfo: AgentErrorInfo | null = null;
     let didComplete = false;
     let tokenUsage: TokenUsage | null = null;
     let suggestions: string[] = [];
@@ -112,9 +119,14 @@ export class ChatService {
             break;
           case 'message_failed':
             failedMessage = event.data.error || 'Agent execution failed.';
+            failedErrorInfo = event.data.errorInfo ?? null;
             yield {
               type: 'message_failed',
-              data: { messageId: assistantMessage.id, error: failedMessage },
+              data: {
+                messageId: assistantMessage.id,
+                error: failedMessage,
+                ...(failedErrorInfo ? { errorInfo: failedErrorInfo } : {}),
+              },
             };
             break;
           case 'suggestions_generated':
@@ -132,7 +144,10 @@ export class ChatService {
       if (failedMessage) {
         artifactBuffer.push({
           type: MessageArtifactType.ERROR,
-          payload: { error: failedMessage },
+          payload: {
+            error: failedMessage,
+            ...(failedErrorInfo ? { errorInfo: failedErrorInfo } : {}),
+          },
         });
         await this.conversationService.failMessage(
           assistantMessage.id,
@@ -156,10 +171,8 @@ export class ChatService {
       });
       await this.artifactService.saveArtifacts(assistantMessage.id, artifactBuffer);
     } catch (error) {
-      const message =
-        error instanceof Error && error.message.trim()
-          ? error.message
-          : 'Agent execution failed.';
+      const normalizedError = normalizeApiError(error, 'Agent execution failed.');
+      const message = normalizedError.message;
 
       await this.conversationService.failMessage(
         assistantMessage.id,
@@ -168,12 +181,19 @@ export class ChatService {
       );
       await this.artifactService.saveArtifacts(assistantMessage.id, [
         ...artifactBuffer,
-        { type: MessageArtifactType.ERROR, payload: { error: message } },
+        {
+          type: MessageArtifactType.ERROR,
+          payload: { error: message, errorInfo: normalizedError },
+        },
       ]);
 
       yield {
         type: 'message_failed',
-        data: { messageId: assistantMessage.id, error: message },
+        data: {
+          messageId: assistantMessage.id,
+          error: message,
+          errorInfo: normalizedError,
+        },
       };
     } finally {
       this.ephemeralStateService.finish(requestId);

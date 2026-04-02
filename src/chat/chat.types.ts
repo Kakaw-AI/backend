@@ -66,6 +66,15 @@ export type TokenUsage = {
   totalTokens: number;
 };
 
+export type AgentErrorInfo = {
+  message: string;
+  code: string;
+  statusCode: number;
+  retryable: boolean;
+  provider?: string;
+  upstreamCode?: string;
+};
+
 export type MessageStartedEvent = {
   type: 'message_started';
   data: {
@@ -129,6 +138,7 @@ export type MessageFailedEvent = {
   data: {
     messageId: string;
     error: string;
+    errorInfo?: AgentErrorInfo;
   };
 };
 

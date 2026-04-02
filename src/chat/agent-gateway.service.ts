@@ -1,10 +1,12 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import {
+  HttpException,
   Injectable,
   InternalServerErrorException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { normalizeApiErrorPayload } from '../common/errors/error-response';
 import {
   AgentRunRequest,
   AgentStreamEvent,
@@ -32,21 +34,24 @@ export class AgentGatewayService {
       },
       body,
     }).catch((error) => {
-      throw new ServiceUnavailableException(
-        `Unable to reach the Python agent service. ${
-          error instanceof Error ? error.message : ''
-        }`.trim(),
-      );
+      throw new ServiceUnavailableException({
+        error: {
+          message: `Unable to reach the Python agent service. ${
+            error instanceof Error ? error.message : ''
+          }`.trim(),
+          code: 'UPSTREAM_UNAVAILABLE',
+          statusCode: 503,
+          retryable: true,
+        },
+      });
     });
 
-    const payload = await response.json().catch(() => null);
+    const payload = await this.readResponsePayload(response);
     if (!response.ok) {
-      const message =
-        payload && typeof payload === 'object' && 'detail' in payload
-          ? String(payload.detail || '').trim()
-          : '';
-      throw new ServiceUnavailableException(
-        message || 'Python agent service rejected the sync request.',
+      this.throwAgentHttpError(
+        payload,
+        response.status,
+        'Python agent service rejected the sync request.',
       );
     }
 
@@ -65,17 +70,24 @@ export class AgentGatewayService {
       },
       body,
     }).catch((error) => {
-      throw new ServiceUnavailableException(
-        `Unable to reach the Python agent service. ${
-          error instanceof Error ? error.message : ''
-        }`.trim(),
-      );
+      throw new ServiceUnavailableException({
+        error: {
+          message: `Unable to reach the Python agent service. ${
+            error instanceof Error ? error.message : ''
+          }`.trim(),
+          code: 'UPSTREAM_UNAVAILABLE',
+          statusCode: 503,
+          retryable: true,
+        },
+      });
     });
 
     if (!response.ok) {
-      const message = await response.text().catch(() => '');
-      throw new ServiceUnavailableException(
-        message.trim() || 'Python agent service rejected the request.',
+      const payload = await this.readResponsePayload(response);
+      this.throwAgentHttpError(
+        payload,
+        response.status,
+        'Python agent service rejected the request.',
       );
     }
 
@@ -159,5 +171,30 @@ export class AgentGatewayService {
     } catch {
       return null;
     }
+  }
+
+  private async readResponsePayload(response: Response): Promise<unknown> {
+    const text = await response.text().catch(() => '');
+    if (!text.trim()) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
+  }
+
+  private throwAgentHttpError(
+    payload: unknown,
+    statusCode: number,
+    fallbackMessage: string,
+  ): never {
+    const error = normalizeApiErrorPayload(payload, fallbackMessage, statusCode);
+    if (error.statusCode === 429) {
+      throw new HttpException({ error }, 429);
+    }
+    throw new HttpException({ error }, error.statusCode);
   }
 }
