@@ -156,6 +156,8 @@ model LlmConnection {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversations Conversation[]
 
+  @@unique([userId, displayName])
+  @@unique([userId, provider, apiKeyLastFour])
   @@map("llm_connections")
 }
 
@@ -184,6 +186,8 @@ model Message {
   status         MessageStatus @default(PENDING)
   content        String
   error          String?
+  tokenUsage     Json?
+  suggestions    String[]
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
