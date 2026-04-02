@@ -128,9 +128,7 @@ export class ChatController {
     const llmConnectionId =
       typeof body.llmConnectionId === 'string'
         ? body.llmConnectionId.trim()
-        : body.llmConnectionId === null
-          ? null
-          : '';
+        : '';
     const llmModelOverride =
       typeof body.llmModelOverride === 'string'
         ? body.llmModelOverride.trim() || null

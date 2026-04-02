@@ -191,7 +191,7 @@ export type SendConversationMessageBody = {
 };
 
 export type UpdateConversationRuntimeInput = {
-  llmConnectionId: string | null;
+  llmConnectionId: string;
   llmModelOverride: string | null;
 };
 

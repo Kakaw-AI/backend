@@ -101,36 +101,28 @@ export class ConversationService {
       throw new BadRequestException('Conversation could not be found.');
     }
 
-    const llmConnectionId = input.llmConnectionId?.trim() || null;
+    const llmConnectionId = input.llmConnectionId.trim();
     const llmModelOverride = input.llmModelOverride?.trim() || null;
-
-    let nextLlmConnectionId: string | null = llmConnectionId;
     let nextLlmModelOverride = llmModelOverride;
 
-    if (!llmConnectionId && llmModelOverride) {
-      throw new BadRequestException(
-        'llmConnectionId is required when setting llmModelOverride.',
-      );
+    if (!llmConnectionId) {
+      throw new BadRequestException('llmConnectionId is required');
     }
 
-    if (llmConnectionId) {
-      const selectedConnection = await this.llmConnectionsService.getRuntimeForUser(
-        userId,
-        llmConnectionId,
-      );
+    const selectedConnection = await this.llmConnectionsService.getRuntimeForUser(
+      userId,
+      llmConnectionId,
+    );
 
-      nextLlmConnectionId = selectedConnection.id;
-
-      if (
-        llmModelOverride &&
-        llmModelOverride === selectedConnection.defaultModel.trim()
-      ) {
-        nextLlmModelOverride = null;
-      }
+    if (
+      llmModelOverride &&
+      llmModelOverride === selectedConnection.defaultModel.trim()
+    ) {
+      nextLlmModelOverride = null;
     }
 
     await this.chatRepository.updateConversationRuntime(conversationId, {
-      llmConnectionId: nextLlmConnectionId,
+      llmConnectionId: selectedConnection.id,
       llmModelOverride: nextLlmModelOverride,
     });
 
