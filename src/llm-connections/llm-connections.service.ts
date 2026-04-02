@@ -11,6 +11,7 @@ import {
   LlmConnectionAction,
   SupportedLlmProvider,
   buildDefaultDisplayName,
+  getEffectiveRuntimeBaseUrl,
   getLinkedProviderId,
   normalizeBaseUrl,
   providerUsesLinkedAccount,
@@ -95,6 +96,10 @@ export class LlmConnectionsService {
     const linkedProviderId = getLinkedProviderId(input.provider);
     const apiKey = input.apiKey?.trim();
     const normalizedBaseUrl = normalizeBaseUrl(input.baseUrl);
+    const effectiveRuntimeBaseUrl = getEffectiveRuntimeBaseUrl(
+      input.provider,
+      input.baseUrl,
+    );
 
     if (usesLinkedAccount && apiKey) {
       throw new BadRequestException(
@@ -118,7 +123,7 @@ export class LlmConnectionsService {
       usesLinkedAccount,
       linkedProviderId: linkedProviderId ?? undefined,
       baseUrl: normalizedBaseUrl ?? undefined,
-      normalizedBaseUrl,
+      effectiveRuntimeBaseUrl,
       rawApiKey: apiKey,
     });
 
@@ -151,7 +156,7 @@ export class LlmConnectionsService {
     usesLinkedAccount: boolean;
     linkedProviderId?: string;
     baseUrl?: string;
-    normalizedBaseUrl: string | null;
+    effectiveRuntimeBaseUrl: string | null;
     rawApiKey?: string;
   }) {
     const provider = toPrismaLlmProvider(input.provider);
@@ -217,19 +222,20 @@ export class LlmConnectionsService {
       baseUrl: string | null;
     },
     input: {
-      displayName: string;
+      provider: SupportedLlmProvider;
       defaultModel: string;
-      normalizedBaseUrl: string | null;
+      effectiveRuntimeBaseUrl: string | null;
       rawApiKey?: string;
       usesLinkedAccount: boolean;
       linkedProviderId?: string;
     },
   ) {
-    const sameName = candidate.displayName.trim() === input.displayName;
     const sameModel = candidate.defaultModel.trim() === input.defaultModel;
-    const sameBaseUrl = normalizeBaseUrl(candidate.baseUrl) === input.normalizedBaseUrl;
+    const sameBaseUrl =
+      getEffectiveRuntimeBaseUrl(input.provider, candidate.baseUrl) ===
+      input.effectiveRuntimeBaseUrl;
 
-    if (!sameName || !sameModel || !sameBaseUrl) {
+    if (!sameModel || !sameBaseUrl) {
       return false;
     }
 

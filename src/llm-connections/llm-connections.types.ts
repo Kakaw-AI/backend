@@ -76,6 +76,17 @@ export function normalizeBaseUrl(value?: string | null) {
   return value?.trim().replace(/\/+$/, '') || null;
 }
 
+export function getEffectiveRuntimeBaseUrl(
+  provider: SupportedLlmProvider,
+  value?: string | null,
+) {
+  if (provider !== 'openai') {
+    return null;
+  }
+
+  return normalizeBaseUrl(value);
+}
+
 export function buildDefaultDisplayName(
   provider: SupportedLlmProvider,
   defaultModel: string,

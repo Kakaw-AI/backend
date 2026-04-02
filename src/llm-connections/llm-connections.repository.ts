@@ -93,6 +93,7 @@ export class LlmConnectionsRepository {
     return this.prisma.llmConnection.count({
       where: {
         userId,
+        isActive: true,
         status: LlmConnectionStatus.SUCCESS,
       },
     });
