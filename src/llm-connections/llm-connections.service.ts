@@ -98,6 +98,16 @@ export class LlmConnectionsService {
       throw new BadRequestException('apiKey is required for this provider.');
     }
 
+    const existingByName = await this.llmConnectionsRepository.findByDisplayNameForUser(
+      userId,
+      displayName,
+    );
+    if (existingByName) {
+      throw new BadRequestException(
+        `An LLM connection named "${displayName}" already exists.`,
+      );
+    }
+
     const apiKeyLastFour = apiKey ? apiKey.slice(-4) : undefined;
     const duplicateCandidates =
       await this.llmConnectionsRepository.findDuplicateCandidatesForUser(
