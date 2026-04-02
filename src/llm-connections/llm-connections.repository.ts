@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { LlmConnectionStatus, LlmProvider } from '@prisma/client';
+import { LlmConnectionStatus, LlmProvider, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   SupportedLlmProvider,
   fromPrismaLlmProvider,
   toPrismaLlmProvider,
 } from './llm-connections.types';
+
+type LlmConnectionsDbClient = Prisma.TransactionClient | PrismaService;
 
 type CreatePendingLlmConnectionInput = {
   userId: string;
@@ -107,22 +109,18 @@ export class LlmConnectionsRepository {
       .then((count) => count > 0);
   }
 
-  findByDisplayNameForUser(userId: string, displayName: string) {
-    return this.prisma.llmConnection.findFirst({
-      where: {
-        userId,
-        displayName,
-        status: { not: LlmConnectionStatus.FAILED },
-      },
-      select: { id: true },
-    });
-  }
-
-  findDuplicateCandidatesForUser(userId: string, provider: LlmProvider) {
-    return this.prisma.llmConnection.findMany({
+  findDuplicateCandidatesForUser(
+    userId: string,
+    provider: LlmProvider,
+    db: LlmConnectionsDbClient = this.prisma,
+  ) {
+    return db.llmConnection.findMany({
       where: {
         userId,
         provider,
+        status: {
+          not: LlmConnectionStatus.FAILED,
+        },
       },
       select: {
         id: true,
@@ -137,8 +135,11 @@ export class LlmConnectionsRepository {
     });
   }
 
-  createPending(input: CreatePendingLlmConnectionInput) {
-    return this.prisma.llmConnection.create({
+  createPending(
+    input: CreatePendingLlmConnectionInput,
+    db: LlmConnectionsDbClient = this.prisma,
+  ) {
+    return db.llmConnection.create({
       data: {
         userId: input.userId,
         provider: toPrismaLlmProvider(input.provider),

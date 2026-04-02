@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
-import { LlmConnectionStatus } from '@prisma/client';
+import { LlmConnectionStatus, Prisma } from '@prisma/client';
 import { AuthService } from '../auth/auth.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { GithubCopilotSdkService } from './github-copilot-sdk.service';
 import { LlmConnectionsRepository } from './llm-connections.repository';
 import { SecretsService } from './secrets.service';
@@ -28,6 +29,7 @@ export class LlmConnectionsService {
     private readonly secretsService: SecretsService,
     private readonly authService: AuthService,
     private readonly githubCopilotSdkService: GithubCopilotSdkService,
+    private readonly prisma: PrismaService,
   ) {}
 
   listForUser(userId: string) {
@@ -42,6 +44,12 @@ export class LlmConnectionsService {
 
     if (!connection) {
       throw new BadRequestException('Selected LLM connection could not be found.');
+    }
+
+    if (!connection.isActive) {
+      throw new BadRequestException(
+        'Selected LLM connection must be active before starting a chat.',
+      );
     }
 
     if (connection.status !== LlmConnectionStatus.SUCCESS) {
@@ -98,59 +106,20 @@ export class LlmConnectionsService {
       throw new BadRequestException('apiKey is required for this provider.');
     }
 
-    const existingByName = await this.llmConnectionsRepository.findByDisplayNameForUser(
-      userId,
-      displayName,
-    );
-    if (existingByName) {
-      throw new BadRequestException(
-        `An LLM connection named "${displayName}" already exists.`,
-      );
-    }
-
     const apiKeyLastFour = apiKey ? apiKey.slice(-4) : undefined;
-    const duplicateCandidates =
-      await this.llmConnectionsRepository.findDuplicateCandidatesForUser(
-        userId,
-        toPrismaLlmProvider(input.provider),
-      );
-
-    const exactDuplicate = duplicateCandidates.find((candidate) => {
-      const sameName = candidate.displayName.trim() === displayName;
-      const sameModel = candidate.defaultModel.trim() === defaultModel;
-      const sameBaseUrl = normalizeBaseUrl(candidate.baseUrl) === normalizedBaseUrl;
-
-      if (!sameName || !sameModel || !sameBaseUrl) {
-        return false;
-      }
-
-      if (usesLinkedAccount) {
-        return candidate.linkedProviderId === linkedProviderId;
-      }
-
-      const candidateApiKey = candidate.encryptedApiKey
-        ? this.secretsService.decrypt(candidate.encryptedApiKey)
-        : null;
-
-      return candidateApiKey === apiKey;
-    });
-
-    if (exactDuplicate) {
-      throw new BadRequestException(
-        'An identical LLM connection already exists.',
-      );
-    }
-
-    const pendingConnection = await this.llmConnectionsRepository.createPending({
+    const encryptedApiKey = apiKey ? this.secretsService.encrypt(apiKey) : undefined;
+    const pendingConnection = await this.createPendingConnectionWithDuplicateGuard({
       userId,
       provider: input.provider,
       displayName,
       defaultModel,
-      encryptedApiKey: apiKey ? this.secretsService.encrypt(apiKey) : undefined,
+      encryptedApiKey,
       apiKeyLastFour,
       usesLinkedAccount,
       linkedProviderId: linkedProviderId ?? undefined,
       baseUrl: normalizedBaseUrl ?? undefined,
+      normalizedBaseUrl,
+      rawApiKey: apiKey,
     });
 
     try {
@@ -170,6 +139,116 @@ export class LlmConnectionsService {
       await this.llmConnectionsRepository.markFailure(pendingConnection.id, message);
       throw new BadRequestException(message);
     }
+  }
+
+  private async createPendingConnectionWithDuplicateGuard(input: {
+    userId: string;
+    provider: SupportedLlmProvider;
+    displayName: string;
+    defaultModel: string;
+    encryptedApiKey?: string;
+    apiKeyLastFour?: string;
+    usesLinkedAccount: boolean;
+    linkedProviderId?: string;
+    baseUrl?: string;
+    normalizedBaseUrl: string | null;
+    rawApiKey?: string;
+  }) {
+    const provider = toPrismaLlmProvider(input.provider);
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(
+          async (tx) => {
+            const duplicateCandidates =
+              await this.llmConnectionsRepository.findDuplicateCandidatesForUser(
+                input.userId,
+                provider,
+                tx,
+              );
+
+            const exactDuplicate = duplicateCandidates.find((candidate) =>
+              this.isExactDuplicateCandidate(candidate, input),
+            );
+
+            if (exactDuplicate) {
+              throw new BadRequestException('This LLM connection already exists.');
+            }
+
+            return this.llmConnectionsRepository.createPending(
+              {
+                userId: input.userId,
+                provider: input.provider,
+                displayName: input.displayName,
+                defaultModel: input.defaultModel,
+                encryptedApiKey: input.encryptedApiKey,
+                apiKeyLastFour: input.apiKeyLastFour,
+                usesLinkedAccount: input.usesLinkedAccount,
+                linkedProviderId: input.linkedProviderId,
+                baseUrl: input.baseUrl,
+              },
+              tx,
+            );
+          },
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          },
+        );
+      } catch (error) {
+        if (error instanceof BadRequestException) {
+          throw error;
+        }
+
+        if (!this.isRetryableTransactionError(error) || attempt === 2) {
+          throw error;
+        }
+      }
+    }
+
+    throw new Error('Failed to create the LLM connection.');
+  }
+
+  private isExactDuplicateCandidate(
+    candidate: {
+      displayName: string;
+      defaultModel: string;
+      encryptedApiKey: string | null;
+      linkedProviderId: string | null;
+      baseUrl: string | null;
+    },
+    input: {
+      displayName: string;
+      defaultModel: string;
+      normalizedBaseUrl: string | null;
+      rawApiKey?: string;
+      usesLinkedAccount: boolean;
+      linkedProviderId?: string;
+    },
+  ) {
+    const sameName = candidate.displayName.trim() === input.displayName;
+    const sameModel = candidate.defaultModel.trim() === input.defaultModel;
+    const sameBaseUrl = normalizeBaseUrl(candidate.baseUrl) === input.normalizedBaseUrl;
+
+    if (!sameName || !sameModel || !sameBaseUrl) {
+      return false;
+    }
+
+    if (input.usesLinkedAccount) {
+      return candidate.linkedProviderId === (input.linkedProviderId ?? null);
+    }
+
+    const candidateApiKey = candidate.encryptedApiKey
+      ? this.secretsService.decrypt(candidate.encryptedApiKey)
+      : null;
+
+    return candidateApiKey === (input.rawApiKey ?? null);
+  }
+
+  private isRetryableTransactionError(error: unknown) {
+    return (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2034'
+    );
   }
 
   private async getByIdForUser(userId: string, id: string) {
