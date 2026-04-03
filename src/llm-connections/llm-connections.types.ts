@@ -2,6 +2,7 @@ import { LlmProvider } from '@prisma/client';
 
 export const SUPPORTED_LLM_PROVIDERS = [
   'openai',
+  'custom-openai',
   'anthropic',
   'openrouter',
   'google',
@@ -36,6 +37,8 @@ export function toPrismaLlmProvider(provider: SupportedLlmProvider): LlmProvider
   switch (provider) {
     case 'openai':
       return LlmProvider.OPENAI;
+    case 'custom-openai':
+      return LlmProvider.CUSTOM_OPENAI;
     case 'anthropic':
       return LlmProvider.ANTHROPIC;
     case 'openrouter':
@@ -53,6 +56,8 @@ export function fromPrismaLlmProvider(provider: LlmProvider): SupportedLlmProvid
   switch (provider) {
     case LlmProvider.OPENAI:
       return 'openai';
+    case LlmProvider.CUSTOM_OPENAI:
+      return 'custom-openai';
     case LlmProvider.ANTHROPIC:
       return 'anthropic';
     case LlmProvider.OPENROUTER:
@@ -82,7 +87,7 @@ export function getEffectiveRuntimeBaseUrl(
   provider: SupportedLlmProvider,
   value?: string | null,
 ) {
-  if (provider !== 'openai') {
+  if (provider !== 'openai' && provider !== 'custom-openai') {
     return null;
   }
 

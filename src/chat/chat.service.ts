@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
-import { MessageArtifactType } from '@prisma/client';
+import { MessageArtifactType, MessageStatus } from '@prisma/client';
 import { normalizeApiError } from '../common/errors/error-response';
+import { ChatRepository } from './chat.repository';
 import { EphemeralStateService } from './ephemeral-state.service';
 import { RuntimeConfigService } from './runtime-config.service';
 import { ArtifactInput, ArtifactService } from './artifact.service';
@@ -20,6 +21,7 @@ import {
 @Injectable()
 export class ChatService {
   constructor(
+    private readonly chatRepository: ChatRepository,
     private readonly conversationService: ConversationService,
     private readonly artifactService: ArtifactService,
     private readonly messageStreamingService: MessageStreamingService,
@@ -117,6 +119,12 @@ export class ChatService {
     let didComplete = false;
     let tokenUsage: TokenUsage | null = null;
     let suggestions: string[] = [];
+    let traceSteps: Array<{ text: string; at: string }> = [];
+    let traceToolCalls: Array<Record<string, unknown>> = [];
+    let traceRepairHistory: Array<Record<string, unknown>> = [];
+    let traceChartSpec: Record<string, unknown> | null = null;
+    let traceCacheKey: string | null = null;
+    let traceCacheHit = false;
 
     this.ephemeralStateService.start(requestId, conversationId, userId);
 
@@ -139,6 +147,7 @@ export class ChatService {
             content: message.content,
           })),
         database: runtime.database,
+        knowledge: runtime.knowledge,
         llm: runtime.llm,
       })) {
         this.ephemeralStateService.touch(requestId);
@@ -179,6 +188,22 @@ export class ChatService {
               data: { messageId: assistantMessage.id, suggestions },
             };
             break;
+          case 'agent_trace':
+            traceSteps = Array.isArray(event.data.steps) ? event.data.steps : [];
+            traceToolCalls = Array.isArray(event.data.toolCalls)
+              ? event.data.toolCalls
+              : [];
+            traceRepairHistory = Array.isArray(event.data.repairHistory)
+              ? event.data.repairHistory
+              : [];
+            traceChartSpec =
+              event.data.chartSpec && typeof event.data.chartSpec === 'object'
+                ? (event.data.chartSpec as Record<string, unknown>)
+                : null;
+            traceCacheKey =
+              typeof event.data.cacheKey === 'string' ? event.data.cacheKey : null;
+            traceCacheHit = event.data.cacheHit === true;
+            break;
           default:
             yield event;
         }
@@ -197,6 +222,27 @@ export class ChatService {
           failedMessage,
           assistantContent,
         );
+        await this.persistAgentRunTrace({
+          requestId,
+          status: MessageStatus.FAILED,
+          effectiveModel: runtime.llm.model,
+          question: trimmedContent,
+          response: assistantContent,
+          error: failedMessage,
+          tokenUsage,
+          steps: traceSteps,
+          toolCalls: traceToolCalls,
+          repairHistory: traceRepairHistory,
+          chartSpec: traceChartSpec,
+          cacheKey: traceCacheKey,
+          cacheHit: traceCacheHit,
+          suggestions,
+          userId,
+          databaseSourceId: conversation.databaseSourceId,
+          conversationId,
+          llmConnectionId: conversation.llmConnectionId,
+          messageId: assistantMessage.id,
+        });
         await this.artifactService.saveArtifacts(assistantMessage.id, artifactBuffer);
         return;
       }
@@ -211,6 +257,26 @@ export class ChatService {
       await this.conversationService.completeMessage(assistantMessage.id, assistantContent, {
         tokenUsage,
         suggestions,
+      });
+      await this.persistAgentRunTrace({
+        requestId,
+        status: MessageStatus.COMPLETED,
+        effectiveModel: runtime.llm.model,
+        question: trimmedContent,
+        response: assistantContent,
+        tokenUsage,
+        steps: traceSteps,
+        toolCalls: traceToolCalls,
+        repairHistory: traceRepairHistory,
+        chartSpec: traceChartSpec,
+        cacheKey: traceCacheKey,
+        cacheHit: traceCacheHit,
+        suggestions,
+        userId,
+        databaseSourceId: conversation.databaseSourceId,
+        conversationId,
+        llmConnectionId: conversation.llmConnectionId,
+        messageId: assistantMessage.id,
       });
       await this.artifactService.saveArtifacts(assistantMessage.id, artifactBuffer);
     } catch (error) {
@@ -229,6 +295,27 @@ export class ChatService {
           payload: { error: message, errorInfo: normalizedError },
         },
       ]);
+      await this.persistAgentRunTrace({
+        requestId,
+        status: MessageStatus.FAILED,
+        effectiveModel: runtime.llm.model,
+        question: trimmedContent,
+        response: assistantContent,
+        error: message,
+        tokenUsage,
+        steps: traceSteps,
+        toolCalls: traceToolCalls,
+        repairHistory: traceRepairHistory,
+        chartSpec: traceChartSpec,
+        cacheKey: traceCacheKey,
+        cacheHit: traceCacheHit,
+        suggestions,
+        userId,
+        databaseSourceId: conversation.databaseSourceId,
+        conversationId,
+        llmConnectionId: conversation.llmConnectionId,
+        messageId: assistantMessage.id,
+      });
 
       yield {
         type: 'message_failed',
@@ -241,5 +328,19 @@ export class ChatService {
     } finally {
       this.ephemeralStateService.finish(requestId);
     }
+  }
+
+  async submitTraceFeedback(
+    traceId: string,
+    userId: string,
+    feedback: 'positive' | 'negative',
+  ): Promise<void> {
+    await this.chatRepository.submitFeedback(traceId, userId, feedback);
+  }
+
+  private persistAgentRunTrace(
+    input: Parameters<ChatRepository['createAgentRunTrace']>[0],
+  ) {
+    return this.chatRepository.createAgentRunTrace(input);
   }
 }

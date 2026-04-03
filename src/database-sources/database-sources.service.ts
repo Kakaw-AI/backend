@@ -1,6 +1,7 @@
 import { unlink } from 'node:fs/promises';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DatabaseSourceStatus } from '@prisma/client';
+import { DatabaseKnowledgeService } from '../database-knowledge/database-knowledge.service';
 import { AgentGatewayService } from '../chat/agent-gateway.service';
 import { DatabaseSourcesRepository } from './database-sources.repository';
 import {
@@ -8,6 +9,7 @@ import {
   UploadedSqliteFile,
 } from './database-sources.types';
 import type { AgentDatabaseRuntime } from '../chat/chat.types';
+import { SqliteFingerprintService } from './sqlite-fingerprint.service';
 
 type CreateDatabaseSourceInput = {
   provider: SupportedDatabaseProvider;
@@ -20,6 +22,8 @@ export class DatabaseSourcesService {
   constructor(
     private readonly databaseSourcesRepository: DatabaseSourcesRepository,
     private readonly agentGatewayService: AgentGatewayService,
+    private readonly databaseKnowledgeService: DatabaseKnowledgeService,
+    private readonly sqliteFingerprintService: SqliteFingerprintService,
   ) {}
 
   listForUser(userId: string) {
@@ -38,7 +42,7 @@ export class DatabaseSourcesService {
 
     if (source.status !== DatabaseSourceStatus.READY) {
       throw new BadRequestException(
-        'Selected database source must finish Vanna sync before starting a chat.',
+        'Selected database source must finish sync before starting a chat.',
       );
     }
 
@@ -84,6 +88,14 @@ export class DatabaseSourcesService {
       throw new BadRequestException('Selected database source could not be found.');
     }
 
+    const REFRESH_COOLDOWN_MS = 30_000;
+    const lastSynced = source.lastSyncedAt;
+    if (lastSynced && Date.now() - lastSynced.getTime() < REFRESH_COOLDOWN_MS) {
+      throw new BadRequestException(
+        'Please wait 30 seconds before refreshing again.',
+      );
+    }
+
     const syncingSource = await this.databaseSourcesRepository.markSyncing(source.id);
     this.queueSync(syncingSource.id);
     return syncingSource;
@@ -121,11 +133,26 @@ export class DatabaseSourcesService {
       throw new BadRequestException('A SQLite database file is required.');
     }
 
+    const sqliteFingerprint = await this.sqliteFingerprintService.fingerprint(
+      sqliteFile.path,
+    );
+    const existingSource =
+      await this.databaseSourcesRepository.findSqliteDuplicateByFingerprint(
+        userId,
+        sqliteFingerprint,
+      );
+
+    if (existingSource) {
+      await this.discardUploadedFile(sqliteFile.path);
+      return existingSource;
+    }
+
     const pendingSource = await this.databaseSourcesRepository.createPending({
       userId,
       provider: 'sqlite',
       sqliteFilePath: sqliteFile.path,
       sqliteOriginalFilename: sqliteFile.originalName,
+      sqliteFingerprint,
     });
 
     const syncingSource = await this.databaseSourcesRepository.markSyncing(
@@ -146,29 +173,42 @@ export class DatabaseSourcesService {
     }
 
     try {
-      await this.agentGatewayService.syncDatabaseSource({
+      const syncResult = await this.agentGatewayService.syncDatabaseSource({
         requestId: this.agentGatewayService.createRequestId(),
         userId: source.userId,
         database: this.toAgentDatabaseRuntime(source),
       });
 
-      await this.databaseSourcesRepository.markReady(source.id);
+      await this.databaseKnowledgeService.replaceCatalog(source.id, {
+        schemaFingerprint: syncResult.schemaFingerprint,
+        syncMetadata: syncResult.syncMetadata,
+        tables: syncResult.catalog.tables,
+        knowledgeDocuments: syncResult.catalog.knowledgeDocuments,
+      });
+
+      await this.databaseSourcesRepository.markReady(source.id, {
+        schemaFingerprint: syncResult.schemaFingerprint,
+        syncMetadata: syncResult.syncMetadata,
+      });
     } catch (error) {
       const message =
         error instanceof Error && error.message.trim()
           ? error.message.trim()
-          : 'Unable to sync the selected database with the Python agent.';
+          : 'Unable to sync the selected database with the agent runtime.';
       await this.databaseSourcesRepository.markFailure(source.id, message);
     }
   }
 
-  private toAgentDatabaseRuntime(
-    source: Awaited<ReturnType<DatabaseSourcesRepository['findRuntimeById']>>,
+  toAgentDatabaseRuntime(
+    source: {
+      id: string;
+      provider: string;
+      schemaFingerprint?: string | null;
+      connectionString?: string | null;
+      sqliteFilePath?: string | null;
+      sqliteOriginalFilename?: string | null;
+    },
   ): AgentDatabaseRuntime {
-    if (!source) {
-      throw new BadRequestException('Selected database source could not be found.');
-    }
-
     return {
       sourceId: source.id,
       provider: source.provider as SupportedDatabaseProvider,
@@ -176,6 +216,7 @@ export class DatabaseSourcesService {
         source.provider === 'sqlite'
           ? source.sqliteOriginalFilename?.trim() || 'SQLite upload'
           : 'PostgreSQL connection',
+      schemaFingerprint: source.schemaFingerprint ?? undefined,
       connectionString:
         source.provider === 'postgresql'
           ? source.connectionString ?? undefined

@@ -18,11 +18,12 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  sessions Session[]
-  accounts Account[]
+  sessions        Session[]
+  accounts        Account[]
   databaseSources DatabaseSource[]
   llmConnections  LlmConnection[]
   conversations   Conversation[]
+  agentRunTraces  AgentRunTrace[]
 
   @@map("users")
 }
@@ -42,6 +43,7 @@ enum LlmConnectionStatus {
 
 enum LlmProvider {
   OPENAI
+  CUSTOM_OPENAI
   ANTHROPIC
   OPENROUTER
   GOOGLE
@@ -121,7 +123,9 @@ model DatabaseSource {
   connectionString     String?
   sqliteFilePath       String?
   sqliteOriginalFilename String?
+  sqliteFingerprint    String?
   schemaFingerprint    String?
+  syncMetadata         Json?
   lastError            String?
   lastTestedAt         DateTime?
   lastSyncedAt         DateTime?
@@ -129,10 +133,14 @@ model DatabaseSource {
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  conversations Conversation[]
+  userId             String
+  user               User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversations      Conversation[]
+  tables             DatabaseSourceTable[]
+  knowledgeDocuments DatabaseSourceKnowledgeDocument[]
+  agentRunTraces     AgentRunTrace[]
 
+  @@index([userId, sqliteFingerprint])
   @@map("database_sources")
 }
 
@@ -153,9 +161,10 @@ model LlmConnection {
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  conversations Conversation[]
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversations  Conversation[]
+  agentRunTraces AgentRunTrace[]
 
   @@map("llm_connections")
 }
@@ -175,6 +184,7 @@ model Conversation {
   llmConnectionId  String?
   llmConnection    LlmConnection? @relation(fields: [llmConnectionId], references: [id], onDelete: SetNull)
   messages         Message[]
+  agentRunTraces   AgentRunTrace[]
 
   @@index([userId, updatedAt])
   @@map("conversations")
@@ -194,6 +204,7 @@ model Message {
   conversationId String
   conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   artifacts      MessageArtifact[]
+  agentRunTraces AgentRunTrace[]
 
   @@index([conversationId, createdAt])
   @@map("messages")
@@ -210,4 +221,136 @@ model MessageArtifact {
 
   @@index([messageId, createdAt])
   @@map("message_artifacts")
+}
+
+model DatabaseSourceTable {
+  id                String                 @id @default(cuid())
+  schemaName        String?
+  name              String
+  rowCount          Int?
+  sampleRows        Json?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  databaseSourceId  String
+  databaseSource    DatabaseSource         @relation(fields: [databaseSourceId], references: [id], onDelete: Cascade)
+  columns           DatabaseSourceColumn[]
+  indexes           DatabaseSourceIndex[]
+  outgoingRelations DatabaseSourceRelation[] @relation("source_table_relations")
+  incomingRelations DatabaseSourceRelation[] @relation("target_table_relations")
+
+  @@unique([databaseSourceId, schemaName, name])
+  @@index([databaseSourceId, name])
+  @@map("database_source_tables")
+}
+
+model DatabaseSourceColumn {
+  id              String              @id @default(cuid())
+  name            String
+  normalizedName  String
+  dataType        String
+  isNullable      Boolean
+  isPrimaryKey    Boolean
+  ordinalPosition Int
+  sampleValues    Json?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  tableId         String
+  table           DatabaseSourceTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@unique([tableId, name])
+  @@index([tableId, ordinalPosition])
+  @@map("database_source_columns")
+}
+
+model DatabaseSourceIndex {
+  id        String              @id @default(cuid())
+  name      String
+  columns   String[]
+  isUnique  Boolean             @default(false)
+  isPrimary Boolean             @default(false)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  tableId   String
+  table     DatabaseSourceTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@unique([tableId, name])
+  @@map("database_source_indexes")
+}
+
+model DatabaseSourceRelation {
+  id             String              @id @default(cuid())
+  constraintName String?
+  sourceColumn   String
+  targetColumn   String
+  onUpdate       String?
+  onDelete       String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  sourceTableId  String
+  sourceTable    DatabaseSourceTable @relation("source_table_relations", fields: [sourceTableId], references: [id], onDelete: Cascade)
+  targetTableId  String
+  targetTable    DatabaseSourceTable @relation("target_table_relations", fields: [targetTableId], references: [id], onDelete: Cascade)
+
+  @@index([sourceTableId])
+  @@index([targetTableId])
+  @@map("database_source_relations")
+}
+
+model DatabaseSourceKnowledgeDocument {
+  id               String         @id @default(cuid())
+  scope            String
+  referenceType    String
+  referenceKey     String
+  content          String
+  metadata         Json?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  databaseSourceId String
+  databaseSource   DatabaseSource @relation(fields: [databaseSourceId], references: [id], onDelete: Cascade)
+
+  @@index([databaseSourceId, scope])
+  @@index([databaseSourceId, referenceType])
+  @@map("database_source_knowledge_documents")
+}
+
+model AgentRunTrace {
+  id               String         @id @default(cuid())
+  requestId        String         @unique
+  status           MessageStatus
+  effectiveModel   String
+  question         String
+  response         String?
+  error            String?
+  tokenUsage       Json?
+  steps            Json?
+  toolCalls        Json?
+  repairHistory    Json?
+  chartSpec        Json?
+  cacheKey         String?
+  cacheHit         Boolean        @default(false)
+  suggestions      String[]
+  feedback         String?
+  feedbackAt       DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  userId           String
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  databaseSourceId String
+  databaseSource   DatabaseSource @relation(fields: [databaseSourceId], references: [id], onDelete: Cascade)
+  conversationId   String
+  conversation     Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  llmConnectionId  String?
+  llmConnection    LlmConnection? @relation(fields: [llmConnectionId], references: [id], onDelete: SetNull)
+  messageId        String?
+  message          Message?       @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([userId, databaseSourceId, createdAt])
+  @@index([conversationId, createdAt])
+  @@map("agent_run_traces")
 }

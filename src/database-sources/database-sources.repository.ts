@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DatabaseSourceStatus } from '@prisma/client';
+import { DatabaseSourceStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SupportedDatabaseProvider } from './database-sources.types';
 
@@ -9,6 +9,7 @@ type CreatePendingDatabaseSourceInput = {
   connectionString?: string;
   sqliteFilePath?: string;
   sqliteOriginalFilename?: string;
+  sqliteFingerprint?: string;
 };
 
 @Injectable()
@@ -44,6 +45,8 @@ export class DatabaseSourcesRepository {
         connectionString: true,
         sqliteFilePath: true,
         sqliteOriginalFilename: true,
+        sqliteFingerprint: true,
+        schemaFingerprint: true,
         lastError: true,
         lastTestedAt: true,
         lastSyncedAt: true,
@@ -71,6 +74,29 @@ export class DatabaseSourcesRepository {
     });
   }
 
+  findSqliteDuplicateByFingerprint(userId: string, sqliteFingerprint: string) {
+    return this.prisma.databaseSource.findFirst({
+      where: {
+        userId,
+        provider: 'sqlite',
+        sqliteFingerprint,
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        provider: true,
+        status: true,
+        sqliteOriginalFilename: true,
+        lastError: true,
+        lastTestedAt: true,
+        lastSyncedAt: true,
+        syncRequestedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
   createPending(input: CreatePendingDatabaseSourceInput) {
     return this.prisma.databaseSource.create({
       data: {
@@ -80,6 +106,7 @@ export class DatabaseSourcesRepository {
         connectionString: input.connectionString,
         sqliteFilePath: input.sqliteFilePath,
         sqliteOriginalFilename: input.sqliteOriginalFilename,
+        sqliteFingerprint: input.sqliteFingerprint,
       },
       select: {
         id: true,
@@ -116,7 +143,13 @@ export class DatabaseSourcesRepository {
     });
   }
 
-  markReady(id: string) {
+  markReady(
+    id: string,
+    metadata?: {
+      schemaFingerprint?: string | null;
+      syncMetadata?: Record<string, unknown>;
+    },
+  ) {
     return this.prisma.databaseSource.update({
       where: { id },
       data: {
@@ -124,7 +157,8 @@ export class DatabaseSourcesRepository {
         lastError: null,
         lastTestedAt: new Date(),
         lastSyncedAt: new Date(),
-        schemaFingerprint: null,
+        schemaFingerprint: metadata?.schemaFingerprint ?? null,
+        syncMetadata: (metadata?.syncMetadata ?? {}) as Prisma.InputJsonValue,
       },
       select: {
         id: true,
@@ -175,6 +209,8 @@ export class DatabaseSourcesRepository {
         connectionString: true,
         sqliteFilePath: true,
         sqliteOriginalFilename: true,
+        sqliteFingerprint: true,
+        schemaFingerprint: true,
         lastError: true,
         lastTestedAt: true,
         lastSyncedAt: true,

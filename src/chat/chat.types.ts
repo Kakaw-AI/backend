@@ -10,6 +10,7 @@ import {
   MessageStatus,
 } from '@prisma/client';
 import { normalizeApiError } from '../common/errors/error-response';
+import { DatabaseKnowledgeRuntime } from '../database-knowledge/database-knowledge.types';
 import { SupportedLlmProvider } from '../llm-connections/llm-connections.types';
 
 export type AgentHistoryMessage = {
@@ -22,10 +23,16 @@ export type AgentDatabaseRuntime =
     sourceId: string;
     provider: 'postgresql' | 'sqlite';
     label: string;
+    schemaFingerprint?: string;
     connectionString?: string;
     sqliteFilePath?: string;
     sqliteOriginalFilename?: string;
   };
+
+export type AgentDatabaseContext = {
+  runtime: AgentDatabaseRuntime;
+  knowledge: DatabaseKnowledgeRuntime;
+};
 
 type AgentBaseLlmRuntime = {
   connectionId: string;
@@ -54,6 +61,7 @@ export type AgentRunRequest = {
   message: string;
   history: AgentHistoryMessage[];
   database: AgentDatabaseRuntime;
+  knowledge: DatabaseKnowledgeRuntime;
   llm: AgentLlmRuntime;
 };
 
@@ -67,7 +75,13 @@ export type AgentSyncResponse = {
   sourceId: string;
   status: 'READY' | 'FAILED';
   memoryCount: number;
+  schemaFingerprint: string;
   syncedAt: string;
+  syncMetadata: Record<string, unknown>;
+  catalog: {
+    tables: DatabaseKnowledgeRuntime['tables'];
+    knowledgeDocuments: DatabaseKnowledgeRuntime['knowledgeDocuments'];
+  };
   error?: string;
 };
 
@@ -131,7 +145,6 @@ export type ChartGeneratedEvent = {
     chartType: string;
     title?: string;
     spec: Record<string, unknown>;
-    config?: Record<string, unknown>;
   };
 };
 
@@ -168,6 +181,18 @@ export type SuggestionsGeneratedEvent = {
   };
 };
 
+export type AgentTraceEvent = {
+  type: 'agent_trace';
+  data: {
+    steps: Array<{ text: string; at: string }>;
+    toolCalls: Array<Record<string, unknown>>;
+    repairHistory: Array<Record<string, unknown>>;
+    cacheKey?: string;
+    cacheHit?: boolean;
+    chartSpec?: Record<string, unknown>;
+  };
+};
+
 export type AgentStreamEvent =
   | MessageStartedEvent
   | MessageDeltaEvent
@@ -178,7 +203,8 @@ export type AgentStreamEvent =
   | MessageCompletedEvent
   | MessageFailedEvent
   | AgentStepEvent
-  | SuggestionsGeneratedEvent;
+  | SuggestionsGeneratedEvent
+  | AgentTraceEvent;
 
 export type CreateConversationInput = {
   databaseSourceId: string;

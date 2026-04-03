@@ -1,6 +1,7 @@
 import { AgentRuntimeModule } from '../agent-runtime/agent-runtime.module';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { DatabaseKnowledgeModule } from '../database-knowledge/database-knowledge.module';
 import { DatabaseSourcesModule } from '../database-sources/database-sources.module';
 import { LlmConnectionsModule } from '../llm-connections/llm-connections.module';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -18,6 +19,7 @@ import { RuntimeConfigService } from './runtime-config.service';
     PrismaModule,
     AuthModule,
     AgentRuntimeModule,
+    DatabaseKnowledgeModule,
     DatabaseSourcesModule,
     LlmConnectionsModule,
   ],

@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import type { Request } from 'express';
 import { AuthService } from '../auth/auth.service';
+import { DatabaseKnowledgeService } from '../database-knowledge/database-knowledge.service';
+import type { DatabaseKnowledgeRuntime } from '../database-knowledge/database-knowledge.types';
 import { DatabaseSourcesService } from '../database-sources/database-sources.service';
 import { LlmConnectionsService } from '../llm-connections/llm-connections.service';
 import {
@@ -13,6 +15,7 @@ import {
 export class RuntimeConfigService {
   constructor(
     private readonly databaseSourcesService: DatabaseSourcesService,
+    private readonly databaseKnowledgeService: DatabaseKnowledgeService,
     private readonly llmConnectionsService: LlmConnectionsService,
     private readonly authService: AuthService,
   ) {}
@@ -23,7 +26,11 @@ export class RuntimeConfigService {
     llmConnectionId: string,
     llmModelOverride: string | null,
     request: Request,
-  ): Promise<{ database: AgentDatabaseRuntime; llm: AgentLlmRuntime }> {
+  ): Promise<{
+    database: AgentDatabaseRuntime;
+    knowledge: DatabaseKnowledgeRuntime;
+    llm: AgentLlmRuntime;
+  }> {
     const [databaseSource, llmConnection] = await Promise.all([
       this.databaseSourcesService.getRuntimeForUser(userId, sourceId),
       this.llmConnectionsService.getRuntimeForUser(userId, llmConnectionId),
@@ -31,35 +38,9 @@ export class RuntimeConfigService {
     const model = llmModelOverride?.trim() || llmConnection.defaultModel;
 
     return {
-      database: this.toDatabaseRuntime(databaseSource),
+      database: this.databaseSourcesService.toAgentDatabaseRuntime(databaseSource),
+      knowledge: await this.databaseKnowledgeService.getRuntimeKnowledge(sourceId),
       llm: await this.toLlmRuntime(request, llmConnection, model),
-    };
-  }
-
-  private toDatabaseRuntime(
-    source: Awaited<ReturnType<DatabaseSourcesService['getRuntimeForUser']>>,
-  ): AgentDatabaseRuntime {
-    const label =
-      source.provider === 'sqlite'
-        ? source.sqliteOriginalFilename?.trim() || 'SQLite upload'
-        : 'PostgreSQL connection';
-
-    return {
-      sourceId: source.id,
-      provider: source.provider as SupportedDatabaseProvider,
-      label,
-      connectionString:
-        source.provider === 'postgresql'
-          ? source.connectionString ?? undefined
-          : undefined,
-      sqliteFilePath:
-        source.provider === 'sqlite'
-          ? source.sqliteFilePath ?? undefined
-          : undefined,
-      sqliteOriginalFilename:
-        source.provider === 'sqlite'
-          ? source.sqliteOriginalFilename ?? undefined
-          : undefined,
     };
   }
 
@@ -93,6 +74,7 @@ export class RuntimeConfigService {
 
     switch (connection.provider) {
       case 'openai':
+      case 'custom-openai':
         return {
           connectionId: connection.id,
           provider: connection.provider,
@@ -119,4 +101,3 @@ export class RuntimeConfigService {
     }
   }
 }
-import type { SupportedDatabaseProvider } from '../database-sources/database-sources.types';

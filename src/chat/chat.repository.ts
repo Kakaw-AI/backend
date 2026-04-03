@@ -276,6 +276,66 @@ export class ChatRepository {
     });
   }
 
+  createAgentRunTrace(input: {
+    requestId: string;
+    status: MessageStatus;
+    effectiveModel: string;
+    question: string;
+    response?: string | null;
+    error?: string | null;
+    tokenUsage?: TokenUsage | null;
+    steps?: unknown;
+    toolCalls?: unknown;
+    repairHistory?: unknown;
+    chartSpec?: unknown;
+    cacheKey?: string | null;
+    cacheHit?: boolean;
+    suggestions?: string[];
+    userId: string;
+    databaseSourceId: string;
+    conversationId: string;
+    llmConnectionId?: string | null;
+    messageId: string;
+  }) {
+    return this.prisma.agentRunTrace.create({
+      data: {
+        requestId: input.requestId,
+        status: input.status,
+        effectiveModel: input.effectiveModel,
+        question: input.question,
+        response: input.response ?? null,
+        error: input.error ?? null,
+        tokenUsage: input.tokenUsage ?? Prisma.JsonNull,
+        steps: input.steps ?? Prisma.JsonNull,
+        toolCalls: input.toolCalls ?? Prisma.JsonNull,
+        repairHistory: input.repairHistory ?? Prisma.JsonNull,
+        chartSpec: input.chartSpec ?? Prisma.JsonNull,
+        cacheKey: input.cacheKey ?? null,
+        cacheHit: input.cacheHit ?? false,
+        suggestions: input.suggestions ?? [],
+        userId: input.userId,
+        databaseSourceId: input.databaseSourceId,
+        conversationId: input.conversationId,
+        llmConnectionId: input.llmConnectionId ?? null,
+        messageId: input.messageId,
+      },
+      select: {
+        id: true,
+      },
+    });
+  }
+
+  async submitFeedback(
+    traceId: string,
+    userId: string,
+    feedback: 'positive' | 'negative',
+  ): Promise<void> {
+    await this.prisma.agentRunTrace.updateMany({
+      where: { id: traceId, userId },
+      data: { feedback, feedbackAt: new Date() },
+    });
+  }
+
   private touchConversation(conversationId: string, at: Date) {
     return this.prisma.conversation.update({
       where: { id: conversationId },

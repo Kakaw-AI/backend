@@ -33,12 +33,15 @@ export class AgentGatewayService {
         'x-kakaw-signature': this.sign(timestamp, body),
       },
       body,
+      signal: AbortSignal.timeout(60_000),
     }).catch((error) => {
+      const message =
+        error instanceof Error && error.name === 'TimeoutError'
+          ? 'Agent runtime timed out (sync exceeded 60s).'
+          : `Unable to reach the agent runtime service. ${error instanceof Error ? error.message : ''}`.trim();
       throw new ServiceUnavailableException({
         error: {
-          message: `Unable to reach the Python agent service. ${
-            error instanceof Error ? error.message : ''
-          }`.trim(),
+          message,
           code: 'UPSTREAM_UNAVAILABLE',
           statusCode: 503,
           retryable: true,
@@ -51,7 +54,7 @@ export class AgentGatewayService {
       this.throwAgentHttpError(
         payload,
         response.status,
-        'Python agent service rejected the sync request.',
+        'Agent runtime rejected the sync request.',
       );
     }
 
@@ -69,12 +72,15 @@ export class AgentGatewayService {
         'x-kakaw-signature': this.sign(timestamp, body),
       },
       body,
+      signal: AbortSignal.timeout(300_000),
     }).catch((error) => {
+      const message =
+        error instanceof Error && error.name === 'TimeoutError'
+          ? 'Agent runtime timed out (stream exceeded 5 minutes).'
+          : `Unable to reach the agent runtime service. ${error instanceof Error ? error.message : ''}`.trim();
       throw new ServiceUnavailableException({
         error: {
-          message: `Unable to reach the Python agent service. ${
-            error instanceof Error ? error.message : ''
-          }`.trim(),
+          message,
           code: 'UPSTREAM_UNAVAILABLE',
           statusCode: 503,
           retryable: true,
@@ -87,13 +93,13 @@ export class AgentGatewayService {
       this.throwAgentHttpError(
         payload,
         response.status,
-        'Python agent service rejected the request.',
+        'Agent runtime rejected the request.',
       );
     }
 
     if (!response.body) {
       throw new ServiceUnavailableException(
-        'Python agent service returned no response body.',
+        'Agent runtime returned no response body.',
       );
     }
 

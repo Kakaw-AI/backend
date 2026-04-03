@@ -351,7 +351,8 @@ export class LlmConnectionsService {
     baseUrl?: string,
   ): ProviderValidationRequest {
     switch (provider) {
-      case 'openai': {
+      case 'openai':
+      case 'custom-openai': {
         const resolvedBase = normalizeBaseUrl(baseUrl) || 'https://api.openai.com/v1';
         return {
           url: `${resolvedBase.replace(/\/$/, '')}/models`,
