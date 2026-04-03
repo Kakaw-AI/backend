@@ -3,6 +3,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { DatabaseSourceStatus } from '@prisma/client';
 import { DatabaseKnowledgeService } from '../database-knowledge/database-knowledge.service';
 import { AgentGatewayService } from '../chat/agent-gateway.service';
+import { normalizeApiError } from '../common/errors/error-response';
 import { DatabaseSourcesRepository } from './database-sources.repository';
 import {
   SupportedDatabaseProvider,
@@ -191,11 +192,14 @@ export class DatabaseSourcesService {
         syncMetadata: syncResult.syncMetadata,
       });
     } catch (error) {
-      const message =
-        error instanceof Error && error.message.trim()
-          ? error.message.trim()
-          : 'Unable to sync the selected database with the agent runtime.';
-      await this.databaseSourcesRepository.markFailure(source.id, message);
+      const normalized = normalizeApiError(
+        error,
+        'Unable to sync the selected database with the agent runtime.',
+      );
+      await this.databaseSourcesRepository.markFailure(
+        source.id,
+        normalized.message,
+      );
     }
   }
 
