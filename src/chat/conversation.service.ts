@@ -10,6 +10,7 @@ import { DatabaseSourcesService } from '../database-sources/database-sources.ser
 import { fromPrismaLlmProvider } from '../llm-connections/llm-connections.types';
 import { LlmConnectionsService } from '../llm-connections/llm-connections.service';
 import { ChatRepository } from './chat.repository';
+import { buildConversationSteps, extractLatestTraceSteps } from './trace-steps';
 import {
   ConversationDetailsResponse,
   ConversationLlmConnectionResponse,
@@ -218,6 +219,8 @@ export class ConversationService {
         sqliteOriginalFilename: conversation.databaseSource.sqliteOriginalFilename,
         lastError: conversation.databaseSource.lastError,
         lastTestedAt: conversation.databaseSource.lastTestedAt?.toISOString() ?? null,
+        lastSyncedAt: conversation.databaseSource.lastSyncedAt?.toISOString() ?? null,
+        syncRequestedAt: conversation.databaseSource.syncRequestedAt?.toISOString() ?? null,
         createdAt: conversation.databaseSource.createdAt.toISOString(),
         updatedAt: conversation.databaseSource.updatedAt.toISOString(),
       },
@@ -249,6 +252,10 @@ export class ConversationService {
   private toConversationMessage(
     message: PersistedConversationMessage,
   ): ConversationMessageResponse {
+    const persistedSteps = buildConversationSteps(
+      extractLatestTraceSteps(message.agentRunTraces),
+    );
+
     return {
       id: message.id,
       role: message.role.toLowerCase() as 'user' | 'assistant' | 'system',
@@ -259,6 +266,12 @@ export class ConversationService {
       suggestions: message.suggestions,
       createdAt: message.createdAt.toISOString(),
       updatedAt: message.updatedAt.toISOString(),
+      ...(persistedSteps.length > 0
+        ? {
+            steps: persistedSteps,
+            stepsCollapsed: false,
+          }
+        : {}),
       artifacts: message.artifacts.map((artifact) => ({
         id: artifact.id,
         type: artifact.type,

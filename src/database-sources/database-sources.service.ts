@@ -1,5 +1,5 @@
 import { unlink } from 'node:fs/promises';
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { DatabaseSourceStatus } from '@prisma/client';
 import { DatabaseKnowledgeService } from '../database-knowledge/database-knowledge.service';
 import { AgentGatewayService } from '../chat/agent-gateway.service';
@@ -20,6 +20,8 @@ type CreateDatabaseSourceInput = {
 
 @Injectable()
 export class DatabaseSourcesService {
+  private readonly logger = new Logger(DatabaseSourcesService.name);
+
   constructor(
     private readonly databaseSourcesRepository: DatabaseSourcesRepository,
     private readonly agentGatewayService: AgentGatewayService,
@@ -58,15 +60,39 @@ export class DatabaseSourcesService {
   }
 
   async getOnboardingState(userId: string) {
-    const [connectionCount, readyConnectionCount] = await Promise.all([
+    const [connectionCount, readyConnectionCount, latestSource] = await Promise.all([
       this.databaseSourcesRepository.countByUser(userId),
       this.databaseSourcesRepository.countReadyByUser(userId),
+      this.databaseSourcesRepository.findLatestByUser(userId),
     ]);
+
+    const blockingSync =
+      readyConnectionCount === 0 &&
+      latestSource &&
+      latestSource.status !== DatabaseSourceStatus.READY
+        ? {
+            id: latestSource.id,
+            label: this.toAgentDatabaseRuntime({
+              id: latestSource.id,
+              provider: latestSource.provider,
+              sqliteOriginalFilename: latestSource.sqliteOriginalFilename,
+            }).label,
+            provider: latestSource.provider,
+            status: latestSource.status,
+            lastError: latestSource.lastError,
+            lastTestedAt: latestSource.lastTestedAt?.toISOString() ?? null,
+            lastSyncedAt: latestSource.lastSyncedAt?.toISOString() ?? null,
+            syncRequestedAt: latestSource.syncRequestedAt?.toISOString() ?? null,
+            createdAt: latestSource.createdAt.toISOString(),
+            updatedAt: latestSource.updatedAt.toISOString(),
+          }
+        : null;
 
     return {
       hasDatabaseSource: readyConnectionCount > 0,
       connectionCount,
       isFirstConnection: connectionCount === 0,
+      blockingSync,
     };
   }
 
@@ -195,6 +221,10 @@ export class DatabaseSourcesService {
       const normalized = normalizeApiError(
         error,
         'Unable to sync the selected database with the agent runtime.',
+      );
+      this.logger.error(
+        `Sync failed for database source ${source.id}: ${normalized.message}`,
+        error instanceof Error ? error.stack : undefined,
       );
       await this.databaseSourcesRepository.markFailure(
         source.id,

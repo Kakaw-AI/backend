@@ -53,6 +53,13 @@ const conversationMessageSelect = {
       createdAt: true,
     },
   },
+  agentRunTraces: {
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    select: {
+      steps: true,
+    },
+  },
 } as const satisfies Prisma.MessageSelect;
 
 const conversationSummarySelect = {
@@ -72,6 +79,8 @@ const conversationSummarySelect = {
       status: true,
       lastError: true,
       lastTestedAt: true,
+      lastSyncedAt: true,
+      syncRequestedAt: true,
       createdAt: true,
       updatedAt: true,
     },

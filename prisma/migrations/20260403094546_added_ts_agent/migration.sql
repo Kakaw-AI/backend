@@ -1,2 +1,0 @@
--- RenameIndex
-ALTER INDEX "database_source_knowledge_documents_databaseSourceId_referenceT" RENAME TO "database_source_knowledge_documents_databaseSourceId_refere_idx";

@@ -250,6 +250,9 @@ export type PersistedConversationMessage = {
   createdAt: Date;
   updatedAt: Date;
   artifacts: PersistedMessageArtifact[];
+  agentRunTraces?: Array<{
+    steps: unknown;
+  }>;
 };
 
 export type ConversationDatabaseSourceResponse = {
@@ -259,6 +262,8 @@ export type ConversationDatabaseSourceResponse = {
   sqliteOriginalFilename: string | null;
   lastError: string | null;
   lastTestedAt: string | null;
+  lastSyncedAt: string | null;
+  syncRequestedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -311,6 +316,12 @@ export type ConversationMessageResponse = {
   suggestions: string[];
   createdAt: string;
   updatedAt: string;
+  steps?: Array<{
+    seq: number;
+    text: string;
+    done: boolean;
+  }>;
+  stepsCollapsed?: boolean;
   artifacts: Array<{
     id: string;
     type: MessageArtifactType;

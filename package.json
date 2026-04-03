@@ -16,7 +16,7 @@
   "dependencies": {
     "@github/copilot-sdk": "^0.2.0",
     "@nestjs/common": "^11.0.0",
-    "@nestjs/config": "^4.0.0",
+    "@nestjs/config": "^1.1.5",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
     "@prisma/client": "^6.19.2",
@@ -26,12 +26,12 @@
     "rxjs": "^7.8.0"
   },
   "devDependencies": {
-    "@nestjs/cli": "^11.0.0",
+    "@nestjs/cli": "^10.3.2",
     "@nestjs/schematics": "^11.0.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
-    "prisma": "^6.19.2",
+    "prisma": "^6.19.3",
     "ts-loader": "^9.5.0",
     "ts-node": "^10.9.0",
     "tsconfig-paths": "^4.2.0",

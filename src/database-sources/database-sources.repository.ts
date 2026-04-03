@@ -35,6 +35,25 @@ export class DatabaseSourcesRepository {
     });
   }
 
+  findLatestByUser(userId: string) {
+    return this.prisma.databaseSource.findFirst({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        provider: true,
+        status: true,
+        sqliteOriginalFilename: true,
+        lastError: true,
+        lastTestedAt: true,
+        lastSyncedAt: true,
+        syncRequestedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
   findRuntimeByUserAndId(userId: string, id: string) {
     return this.prisma.databaseSource.findFirst({
       where: { id, userId },

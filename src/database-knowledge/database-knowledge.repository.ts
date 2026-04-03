@@ -132,7 +132,7 @@ export class DatabaseKnowledgeRepository {
         },
         select: { id: true },
       });
-    });
+    }, { timeout: 30_000 });
   }
 
   async getRuntimeKnowledge(sourceId: string): Promise<DatabaseKnowledgeRuntime> {
