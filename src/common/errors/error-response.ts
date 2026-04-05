@@ -7,6 +7,9 @@ export type ApiErrorInfo = {
   retryable: boolean;
   provider?: string;
   upstreamCode?: string;
+  metadata?: {
+    raw?: string;
+  };
 };
 
 export type ApiErrorResponse = {

@@ -296,7 +296,7 @@ export class ChatRepository {
     steps?: unknown;
     toolCalls?: unknown;
     repairHistory?: unknown;
-    chartSpec?: unknown;
+    traceMetadata?: unknown;
     cacheKey?: string | null;
     cacheHit?: boolean;
     suggestions?: string[];
@@ -318,7 +318,7 @@ export class ChatRepository {
         steps: input.steps ?? Prisma.JsonNull,
         toolCalls: input.toolCalls ?? Prisma.JsonNull,
         repairHistory: input.repairHistory ?? Prisma.JsonNull,
-        chartSpec: input.chartSpec ?? Prisma.JsonNull,
+        chartSpec: input.traceMetadata ?? Prisma.JsonNull,
         cacheKey: input.cacheKey ?? null,
         cacheHit: input.cacheHit ?? false,
         suggestions: input.suggestions ?? [],

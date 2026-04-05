@@ -12,8 +12,11 @@ import {
   AgentErrorInfo,
   AgentStreamEvent,
   CreateConversationInput,
+  PersistedAgentTraceMetadata,
   TokenUsage,
+  TraceAnalyticsOutcome,
   UpdateConversationRuntimeInput,
+  VisualizationOutcome,
   buildRuntimeUnavailableException,
   toRuntimeUnavailableException,
 } from './chat.types';
@@ -123,6 +126,9 @@ export class ChatService {
     let traceToolCalls: Array<Record<string, unknown>> = [];
     let traceRepairHistory: Array<Record<string, unknown>> = [];
     let traceChartSpec: Record<string, unknown> | null = null;
+    let traceVisualizationOutcome: VisualizationOutcome | null = null;
+    let traceAnalyticsOutcome: TraceAnalyticsOutcome | null = null;
+    let traceRowCount: number | null = null;
     let traceCacheKey: string | null = null;
     let traceCacheHit = false;
 
@@ -166,7 +172,13 @@ export class ChatService {
             didComplete = true;
             yield {
               type: 'message_completed',
-              data: { messageId: assistantMessage.id, content: assistantContent, tokenUsage: tokenUsage ?? undefined },
+              data: {
+                messageId: assistantMessage.id,
+                content: assistantContent,
+                tokenUsage: tokenUsage ?? undefined,
+                visualizationOutcome: event.data.visualizationOutcome ?? undefined,
+                analyticsOutcome: event.data.analyticsOutcome ?? undefined,
+              },
             };
             break;
           case 'message_failed':
@@ -200,6 +212,17 @@ export class ChatService {
               event.data.chartSpec && typeof event.data.chartSpec === 'object'
                 ? (event.data.chartSpec as Record<string, unknown>)
                 : null;
+            traceVisualizationOutcome =
+              event.data.visualizationOutcome &&
+              typeof event.data.visualizationOutcome === 'object'
+                ? (event.data.visualizationOutcome as VisualizationOutcome)
+                : null;
+            traceAnalyticsOutcome =
+              typeof event.data.analyticsOutcome === 'string'
+                ? (event.data.analyticsOutcome as TraceAnalyticsOutcome)
+                : null;
+            traceRowCount =
+              typeof event.data.rowCount === 'number' ? event.data.rowCount : null;
             traceCacheKey =
               typeof event.data.cacheKey === 'string' ? event.data.cacheKey : null;
             traceCacheHit = event.data.cacheHit === true;
@@ -210,13 +233,7 @@ export class ChatService {
       }
 
       if (failedMessage) {
-        artifactBuffer.push({
-          type: MessageArtifactType.ERROR,
-          payload: {
-            error: failedMessage,
-            ...(failedErrorInfo ? { errorInfo: failedErrorInfo } : {}),
-          },
-        });
+        const traceError = this.resolveTraceErrorMessage(failedMessage, failedErrorInfo);
         await this.conversationService.failMessage(
           assistantMessage.id,
           failedMessage,
@@ -228,12 +245,17 @@ export class ChatService {
           effectiveModel: runtime.llm.model,
           question: trimmedContent,
           response: assistantContent,
-          error: failedMessage,
+          error: traceError,
           tokenUsage,
           steps: traceSteps,
           toolCalls: traceToolCalls,
           repairHistory: traceRepairHistory,
-          chartSpec: traceChartSpec,
+          traceMetadata: this.buildTraceMetadata(
+            traceChartSpec,
+            traceVisualizationOutcome,
+            traceAnalyticsOutcome,
+            traceRowCount,
+          ),
           cacheKey: traceCacheKey,
           cacheHit: traceCacheHit,
           suggestions,
@@ -268,7 +290,12 @@ export class ChatService {
         steps: traceSteps,
         toolCalls: traceToolCalls,
         repairHistory: traceRepairHistory,
-        chartSpec: traceChartSpec,
+        traceMetadata: this.buildTraceMetadata(
+          traceChartSpec,
+          traceVisualizationOutcome,
+          traceAnalyticsOutcome,
+          traceRowCount,
+        ),
         cacheKey: traceCacheKey,
         cacheHit: traceCacheHit,
         suggestions,
@@ -282,31 +309,32 @@ export class ChatService {
     } catch (error) {
       const normalizedError = normalizeApiError(error, 'Agent execution failed.');
       const message = normalizedError.message;
+      const publicMessage = this.resolvePublicErrorMessage(message, normalizedError);
+      const traceError = this.resolveTraceErrorMessage(message, normalizedError);
 
       await this.conversationService.failMessage(
         assistantMessage.id,
-        message,
+        publicMessage,
         assistantContent,
       );
-      await this.artifactService.saveArtifacts(assistantMessage.id, [
-        ...artifactBuffer,
-        {
-          type: MessageArtifactType.ERROR,
-          payload: { error: message, errorInfo: normalizedError },
-        },
-      ]);
+      await this.artifactService.saveArtifacts(assistantMessage.id, artifactBuffer);
       await this.persistAgentRunTrace({
         requestId,
         status: MessageStatus.FAILED,
         effectiveModel: runtime.llm.model,
         question: trimmedContent,
         response: assistantContent,
-        error: message,
+        error: traceError,
         tokenUsage,
         steps: traceSteps,
         toolCalls: traceToolCalls,
         repairHistory: traceRepairHistory,
-        chartSpec: traceChartSpec,
+        traceMetadata: this.buildTraceMetadata(
+          traceChartSpec,
+          traceVisualizationOutcome,
+          traceAnalyticsOutcome,
+          traceRowCount,
+        ),
         cacheKey: traceCacheKey,
         cacheHit: traceCacheHit,
         suggestions,
@@ -321,8 +349,14 @@ export class ChatService {
         type: 'message_failed',
         data: {
           messageId: assistantMessage.id,
-          error: message,
-          errorInfo: normalizedError,
+          error: publicMessage,
+          errorInfo: {
+            ...normalizedError,
+            message: publicMessage,
+            ...(publicMessage === message
+              ? {}
+              : { metadata: { raw: message } }),
+          },
         },
       };
     } finally {
@@ -342,5 +376,44 @@ export class ChatService {
     input: Parameters<ChatRepository['createAgentRunTrace']>[0],
   ) {
     return this.chatRepository.createAgentRunTrace(input);
+  }
+
+  private resolvePublicErrorMessage(
+    fallbackMessage: string,
+    errorInfo: { code?: string; statusCode?: number; provider?: string; metadata?: { raw?: string } },
+  ) {
+    if (
+      (errorInfo.code?.startsWith('AGENT_') || (errorInfo.statusCode ?? 0) >= 500) &&
+      !errorInfo.provider
+    ) {
+      return 'Failed';
+    }
+
+    return fallbackMessage;
+  }
+
+  private resolveTraceErrorMessage(
+    fallbackMessage: string,
+    errorInfo: { metadata?: { raw?: string } } | null,
+  ) {
+    return errorInfo?.metadata?.raw?.trim() || fallbackMessage;
+  }
+
+  private buildTraceMetadata(
+    chartSpec: Record<string, unknown> | null,
+    visualizationOutcome: VisualizationOutcome | null,
+    analyticsOutcome: TraceAnalyticsOutcome | null,
+    rowCount: number | null,
+  ): PersistedAgentTraceMetadata | null {
+    if (!chartSpec && !visualizationOutcome && !analyticsOutcome && rowCount == null) {
+      return null;
+    }
+
+    return {
+      chartSpec,
+      visualizationOutcome,
+      analyticsOutcome,
+      rowCount,
+    };
   }
 }
