@@ -43,11 +43,11 @@ enum LlmConnectionStatus {
 
 enum LlmProvider {
   OPENAI
-  CUSTOM_OPENAI
   ANTHROPIC
   OPENROUTER
   GOOGLE
-  GITHUB_COPILOT
+  OLLAMA
+  LM_STUDIO
 }
 
 enum MessageRole {

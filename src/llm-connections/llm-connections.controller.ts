@@ -5,9 +5,7 @@ import {
   Delete,
   Param,
   Post,
-  Req,
 } from '@nestjs/common';
-import type { Request } from 'express';
 import { AuthUser } from '../auth/better-auth.config';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import {
@@ -34,11 +32,10 @@ export class LlmConnectionsController {
   @Post()
   createLlmConnection(
     @CurrentUser() user: AuthUser,
-    @Req() request: Request,
     @Body() body: CreateLlmConnectionBody,
   ) {
     const input = this.toCreateInput(body);
-    return this.llmConnectionsService.createForUser(user.id, request, input);
+    return this.llmConnectionsService.createForUser(user.id, input);
   }
 
   @Post(':id/activate')

@@ -99,17 +99,6 @@ export class LlmConnectionsRepository {
     });
   }
 
-  hasLinkedGithubAccount(userId: string): Promise<boolean> {
-    return this.prisma.account
-      .count({
-        where: {
-          userId,
-          providerId: 'github',
-        },
-      })
-      .then((count) => count > 0);
-  }
-
   findDuplicateCandidatesForUser(
     userId: string,
     provider: LlmProvider,

@@ -151,6 +151,8 @@ export class ChatService {
           .map((message) => ({
             role: message.role.toLowerCase() as 'user' | 'assistant' | 'system',
             content: message.content,
+            rows: (message.artifacts?.[0]?.payload as Record<string, unknown> | undefined)?.['rows'] as Array<Record<string, unknown>> | undefined,
+            columns: (message.artifacts?.[0]?.payload as Record<string, unknown> | undefined)?.['columns'] as string[] | undefined,
           })),
         database: runtime.database,
         knowledge: runtime.knowledge,

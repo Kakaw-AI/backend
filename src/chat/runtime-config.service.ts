@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import type { Request } from 'express';
-import { AuthService } from '../auth/auth.service';
 import { DatabaseKnowledgeService } from '../database-knowledge/database-knowledge.service';
 import type { DatabaseKnowledgeRuntime } from '../database-knowledge/database-knowledge.types';
 import { DatabaseSourcesService } from '../database-sources/database-sources.service';
@@ -10,6 +9,10 @@ import {
   AgentLlmRuntime,
   buildRuntimeUnavailableException,
 } from './chat.types';
+import {
+  getEffectiveRuntimeBaseUrl,
+  providerTakesOptionalApiKey,
+} from '../llm-connections/llm-connections.types';
 
 @Injectable()
 export class RuntimeConfigService {
@@ -17,7 +20,6 @@ export class RuntimeConfigService {
     private readonly databaseSourcesService: DatabaseSourcesService,
     private readonly databaseKnowledgeService: DatabaseKnowledgeService,
     private readonly llmConnectionsService: LlmConnectionsService,
-    private readonly authService: AuthService,
   ) {}
 
   async resolve(
@@ -40,33 +42,15 @@ export class RuntimeConfigService {
     return {
       database: this.databaseSourcesService.toAgentDatabaseRuntime(databaseSource),
       knowledge: await this.databaseKnowledgeService.getRuntimeKnowledge(sourceId),
-      llm: await this.toLlmRuntime(request, llmConnection, model),
+      llm: this.toLlmRuntime(llmConnection, model),
     };
   }
 
-  private async toLlmRuntime(
-    request: Request,
+  private toLlmRuntime(
     connection: Awaited<ReturnType<LlmConnectionsService['getRuntimeForUser']>>,
     model: string,
-  ): Promise<AgentLlmRuntime> {
-    if (connection.provider === 'github-copilot') {
-      const tokens = await this.authService.getAccessToken(request, 'github');
-      const accessToken = tokens?.accessToken?.trim();
-      if (!accessToken) {
-        throw buildRuntimeUnavailableException(
-          'A linked GitHub account with an access token is required for this runtime.',
-        );
-      }
-
-      return {
-        connectionId: connection.id,
-        provider: 'github-copilot',
-        model,
-        accessToken,
-      };
-    }
-
-    if (!connection.apiKey?.trim()) {
+  ): AgentLlmRuntime {
+    if (!providerTakesOptionalApiKey(connection.provider) && !connection.apiKey?.trim()) {
       throw buildRuntimeUnavailableException(
         'Selected LLM connection is missing runtime credentials.',
       );
@@ -74,13 +58,14 @@ export class RuntimeConfigService {
 
     switch (connection.provider) {
       case 'openai':
-      case 'custom-openai':
+      case 'ollama':
+      case 'lm-studio':
         return {
           connectionId: connection.id,
           provider: connection.provider,
           model,
-          apiKey: connection.apiKey,
-          baseUrl: connection.baseUrl?.trim() || 'https://api.openai.com/v1',
+          apiKey: connection.apiKey || 'empty',
+          baseUrl: getEffectiveRuntimeBaseUrl(connection.provider, connection.baseUrl) || 'https://api.openai.com/v1',
         };
       case 'openrouter':
         return {

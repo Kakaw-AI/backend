@@ -2,11 +2,11 @@ import { LlmProvider } from '@prisma/client';
 
 export const SUPPORTED_LLM_PROVIDERS = [
   'openai',
-  'custom-openai',
   'anthropic',
   'openrouter',
   'google',
-  'github-copilot',
+  'ollama',
+  'lm-studio',
 ] as const;
 
 export type SupportedLlmProvider = (typeof SUPPORTED_LLM_PROVIDERS)[number];
@@ -37,16 +37,16 @@ export function toPrismaLlmProvider(provider: SupportedLlmProvider): LlmProvider
   switch (provider) {
     case 'openai':
       return LlmProvider.OPENAI;
-    case 'custom-openai':
-      return LlmProvider.CUSTOM_OPENAI;
     case 'anthropic':
       return LlmProvider.ANTHROPIC;
     case 'openrouter':
       return LlmProvider.OPENROUTER;
     case 'google':
       return LlmProvider.GOOGLE;
-    case 'github-copilot':
-      return LlmProvider.GITHUB_COPILOT;
+    case 'ollama':
+      return LlmProvider.OLLAMA;
+    case 'lm-studio':
+      return LlmProvider.LM_STUDIO;
   }
 
   return assertUnreachable(provider);
@@ -56,27 +56,23 @@ export function fromPrismaLlmProvider(provider: LlmProvider): SupportedLlmProvid
   switch (provider) {
     case LlmProvider.OPENAI:
       return 'openai';
-    case LlmProvider.CUSTOM_OPENAI:
-      return 'custom-openai';
     case LlmProvider.ANTHROPIC:
       return 'anthropic';
     case LlmProvider.OPENROUTER:
       return 'openrouter';
     case LlmProvider.GOOGLE:
       return 'google';
-    case LlmProvider.GITHUB_COPILOT:
-      return 'github-copilot';
+    case LlmProvider.OLLAMA:
+      return 'ollama';
+    case LlmProvider.LM_STUDIO:
+      return 'lm-studio';
   }
 
   return assertUnreachable(provider);
 }
 
-export function providerUsesLinkedAccount(provider: SupportedLlmProvider) {
-  return provider === 'github-copilot';
-}
-
-export function getLinkedProviderId(provider: SupportedLlmProvider) {
-  return provider === 'github-copilot' ? 'github' : null;
+export function providerTakesOptionalApiKey(provider: SupportedLlmProvider) {
+  return provider === 'ollama' || provider === 'lm-studio';
 }
 
 export function normalizeBaseUrl(value?: string | null) {
@@ -87,7 +83,15 @@ export function getEffectiveRuntimeBaseUrl(
   provider: SupportedLlmProvider,
   value?: string | null,
 ) {
-  if (provider !== 'openai' && provider !== 'custom-openai') {
+  if (provider === 'ollama') {
+    return normalizeBaseUrl(value) ?? 'http://127.0.0.1:11434/v1';
+  }
+
+  if (provider === 'lm-studio') {
+    return normalizeBaseUrl(value) ?? 'http://127.0.0.1:1234/v1';
+  }
+
+  if (provider !== 'openai') {
     return null;
   }
 

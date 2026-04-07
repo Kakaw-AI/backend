@@ -271,6 +271,12 @@ export class ChatRepository {
       select: {
         role: true,
         content: true,
+        artifacts: {
+          where: { type: MessageArtifactType.TABLE },
+          select: { payload: true },
+          orderBy: { createdAt: 'desc' as const },
+          take: 1,
+        },
       },
     });
   }

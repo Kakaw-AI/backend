@@ -1,9 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import type { Request } from 'express';
 import { LlmConnectionStatus, Prisma } from '@prisma/client';
-import { AuthService } from '../auth/auth.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { GithubCopilotSdkService } from './github-copilot-sdk.service';
 import { LlmConnectionsRepository } from './llm-connections.repository';
 import { SecretsService } from './secrets.service';
 import {
@@ -12,9 +9,8 @@ import {
   SupportedLlmProvider,
   buildDefaultDisplayName,
   getEffectiveRuntimeBaseUrl,
-  getLinkedProviderId,
   normalizeBaseUrl,
-  providerUsesLinkedAccount,
+  providerTakesOptionalApiKey,
   toPrismaLlmProvider,
 } from './llm-connections.types';
 
@@ -28,8 +24,6 @@ export class LlmConnectionsService {
   constructor(
     private readonly llmConnectionsRepository: LlmConnectionsRepository,
     private readonly secretsService: SecretsService,
-    private readonly authService: AuthService,
-    private readonly githubCopilotSdkService: GithubCopilotSdkService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -67,10 +61,6 @@ export class LlmConnectionsService {
     };
   }
 
-  hasLinkedGithubAccount(userId: string) {
-    return this.llmConnectionsRepository.hasLinkedGithubAccount(userId);
-  }
-
   async getOnboardingState(userId: string) {
     const [llmConnectionCount, successfulLlmConnectionCount] = await Promise.all([
       this.llmConnectionsRepository.countByUser(userId),
@@ -85,15 +75,13 @@ export class LlmConnectionsService {
 
   async createForUser(
     userId: string,
-    request: Request,
     input: CreateLlmConnectionInput,
   ) {
     const defaultModel = this.getDefaultModel(input);
     const displayName = input.displayName?.trim()
       ? input.displayName.trim()
       : buildDefaultDisplayName(input.provider, defaultModel);
-    const usesLinkedAccount = providerUsesLinkedAccount(input.provider);
-    const linkedProviderId = getLinkedProviderId(input.provider);
+    const takesOptionalApiKey = providerTakesOptionalApiKey(input.provider);
     const apiKey = input.apiKey?.trim();
     const normalizedBaseUrl = normalizeBaseUrl(input.baseUrl);
     const effectiveRuntimeBaseUrl = getEffectiveRuntimeBaseUrl(
@@ -101,13 +89,7 @@ export class LlmConnectionsService {
       input.baseUrl,
     );
 
-    if (usesLinkedAccount && apiKey) {
-      throw new BadRequestException(
-        'GitHub Copilot uses your linked GitHub account and does not accept an API key.',
-      );
-    }
-
-    if (!usesLinkedAccount && !apiKey) {
+    if (!takesOptionalApiKey && !apiKey) {
       throw new BadRequestException('apiKey is required for this provider.');
     }
 
@@ -120,17 +102,13 @@ export class LlmConnectionsService {
       defaultModel,
       encryptedApiKey,
       apiKeyLastFour,
-      usesLinkedAccount,
-      linkedProviderId: linkedProviderId ?? undefined,
       baseUrl: normalizedBaseUrl ?? undefined,
       effectiveRuntimeBaseUrl,
       rawApiKey: apiKey,
     });
 
     try {
-      if (usesLinkedAccount) {
-        await this.validateCopilotConnection(request, defaultModel);
-      } else if (apiKey) {
+      if (apiKey) {
         await this.validateApiKeyProvider(input.provider, apiKey, normalizedBaseUrl ?? undefined);
       }
 
@@ -153,8 +131,6 @@ export class LlmConnectionsService {
     defaultModel: string;
     encryptedApiKey?: string;
     apiKeyLastFour?: string;
-    usesLinkedAccount: boolean;
-    linkedProviderId?: string;
     baseUrl?: string;
     effectiveRuntimeBaseUrl: string | null;
     rawApiKey?: string;
@@ -188,8 +164,7 @@ export class LlmConnectionsService {
                 defaultModel: input.defaultModel,
                 encryptedApiKey: input.encryptedApiKey,
                 apiKeyLastFour: input.apiKeyLastFour,
-                usesLinkedAccount: input.usesLinkedAccount,
-                linkedProviderId: input.linkedProviderId,
+                usesLinkedAccount: false,
                 baseUrl: input.baseUrl,
               },
               tx,
@@ -226,8 +201,6 @@ export class LlmConnectionsService {
       defaultModel: string;
       effectiveRuntimeBaseUrl: string | null;
       rawApiKey?: string;
-      usesLinkedAccount: boolean;
-      linkedProviderId?: string;
     },
   ) {
     const sameModel = candidate.defaultModel.trim() === input.defaultModel;
@@ -237,10 +210,6 @@ export class LlmConnectionsService {
 
     if (!sameModel || !sameBaseUrl) {
       return false;
-    }
-
-    if (input.usesLinkedAccount) {
-      return candidate.linkedProviderId === (input.linkedProviderId ?? null);
     }
 
     const candidateApiKey = candidate.encryptedApiKey
@@ -307,29 +276,6 @@ export class LlmConnectionsService {
     return this.getByIdForUser(userId, id);
   }
 
-  private async validateCopilotConnection(request: Request, defaultModel: string) {
-    const tokens = await this.authService.getAccessToken(request, 'github');
-    const accessToken = tokens?.accessToken?.trim();
-    if (!accessToken) {
-      throw new Error('A linked GitHub account with an access token is required.');
-    }
-
-    try {
-      await this.githubCopilotSdkService.validateAccessToken(
-        accessToken,
-        defaultModel,
-      );
-    } catch (error) {
-      const message =
-        error instanceof Error && error.message.trim()
-          ? error.message.trim()
-          : 'GitHub Copilot rejected the linked GitHub token.';
-      throw new Error(
-        `${message} Ensure your GitHub account has an active Copilot subscription.`,
-      );
-    }
-  }
-
   private async validateApiKeyProvider(
     provider: SupportedLlmProvider,
     apiKey: string,
@@ -352,13 +298,14 @@ export class LlmConnectionsService {
   ): ProviderValidationRequest {
     switch (provider) {
       case 'openai':
-      case 'custom-openai': {
-        const resolvedBase = normalizeBaseUrl(baseUrl) || 'https://api.openai.com/v1';
+      case 'ollama':
+      case 'lm-studio': {
+        const resolvedBase = getEffectiveRuntimeBaseUrl(provider, baseUrl) || 'https://api.openai.com/v1';
         return {
           url: `${resolvedBase.replace(/\/$/, '')}/models`,
-          headers: {
+          headers: apiKey ? {
             Authorization: `Bearer ${apiKey}`,
-          },
+          } : undefined,
         };
       }
       case 'anthropic':
@@ -382,8 +329,6 @@ export class LlmConnectionsService {
             apiKey,
           )}`,
         };
-      case 'github-copilot':
-        throw new Error('Copilot validation must use the linked GitHub account path.');
     }
   }
 

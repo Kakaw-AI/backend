@@ -30,16 +30,14 @@ export class UsersService {
   }
 
   async getChatOptions(userId: string) {
-    const [databaseSources, llmConnections, githubLinked] = await Promise.all([
+    const [databaseSources, llmConnections] = await Promise.all([
       this.databaseSourcesService.listForUser(userId),
       this.llmConnectionsService.listForUser(userId),
-      this.llmConnectionsService.hasLinkedGithubAccount(userId),
     ]);
 
     return {
       databaseSources,
       llmConnections,
-      githubLinked,
     };
   }
 }

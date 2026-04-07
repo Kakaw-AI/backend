@@ -34,24 +34,14 @@ export type AgentDatabaseContext = {
   knowledge: DatabaseKnowledgeRuntime;
 };
 
-type AgentBaseLlmRuntime = {
+export type AgentLlmRuntime = {
   connectionId: string;
+  provider: SupportedLlmProvider;
   model: string;
-};
-
-type AgentApiKeyLlmRuntime = AgentBaseLlmRuntime & {
-  provider: Exclude<SupportedLlmProvider, 'github-copilot'>;
   apiKey?: string;
   baseUrl?: string;
   headers?: Record<string, string>;
 };
-
-type AgentGithubCopilotRuntime = AgentBaseLlmRuntime & {
-  provider: 'github-copilot';
-  accessToken: string;
-};
-
-export type AgentLlmRuntime = AgentApiKeyLlmRuntime | AgentGithubCopilotRuntime;
 
 export type AgentRunRequest = {
   requestId: string;
