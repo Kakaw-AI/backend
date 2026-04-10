@@ -1,6 +1,6 @@
 import { HttpException, HttpStatus } from '@nestjs/common';
 
-export type ApiErrorInfo = {
+type ApiErrorInfo = {
   message: string;
   code: string;
   statusCode: number;
@@ -12,7 +12,7 @@ export type ApiErrorInfo = {
   };
 };
 
-export type ApiErrorResponse = {
+type ApiErrorResponse = {
   error: ApiErrorInfo;
   timestamp?: string;
   path?: string;

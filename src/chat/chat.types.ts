@@ -29,7 +29,7 @@ export type AgentDatabaseRuntime =
     sqliteOriginalFilename?: string;
   };
 
-export type AgentDatabaseContext = {
+type AgentDatabaseContext = {
   runtime: AgentDatabaseRuntime;
   knowledge: DatabaseKnowledgeRuntime;
 };
@@ -406,7 +406,7 @@ export type ConversationDetailsResponse = ConversationSummaryResponse & {
   messages: ConversationMessageResponse[];
 };
 
-export const RUNTIME_UNAVAILABLE_ERROR_CODE = 'LLM_CONNECTION_UNAVAILABLE';
+const RUNTIME_UNAVAILABLE_ERROR_CODE = 'LLM_CONNECTION_UNAVAILABLE';
 
 export function buildRuntimeUnavailableException(message: string) {
   return new BadRequestException({

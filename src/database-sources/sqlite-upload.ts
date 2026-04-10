@@ -53,4 +53,4 @@ export const sqliteFileInterceptorOptions: MulterOptions = {
   },
 };
 
-export { SQLITE_UPLOAD_DIR, SQLITE_UPLOAD_FIELD_NAME };
+export { SQLITE_UPLOAD_FIELD_NAME };

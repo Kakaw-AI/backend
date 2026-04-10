@@ -1,4 +1,4 @@
-export type PersistedTraceStep = {
+type PersistedTraceStep = {
   text: string;
   at: string;
 };
