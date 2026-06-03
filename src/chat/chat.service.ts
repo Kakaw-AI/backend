@@ -67,6 +67,57 @@ export class ChatService {
       throw new BadRequestException('content is required');
     }
 
+    const conversation = await this.loadConversationForChat(userId, conversationId);
+    const runtime = await this.resolveRuntimeConfig(userId, conversation, request);
+
+    const { assistantMessage } = await this.conversationService.createMessagePair(
+      conversationId,
+      trimmedContent,
+    );
+    const history = await this.conversationService.findRecentHistory(conversationId, 24);
+
+    yield* this.runAgentStream({
+      userId,
+      conversationId,
+      conversation,
+      runtime,
+      assistantMessageId: assistantMessage.id,
+      question: trimmedContent,
+      history,
+    });
+  }
+
+  async *retryMessage(
+    userId: string,
+    request: Request,
+    conversationId: string,
+    messageId: string,
+  ): AsyncGenerator<AgentStreamEvent> {
+    const conversation = await this.loadConversationForChat(userId, conversationId);
+    const target = await this.conversationService.prepareMessageRetry(
+      conversationId,
+      messageId,
+    );
+    const runtime = await this.resolveRuntimeConfig(userId, conversation, request);
+
+    // Reset the failed assistant message in place (clears error/content/artifacts
+    // and flips it back to STREAMING) so the retry reuses the same bubble and the
+    // original user message — no duplicate turn is created.
+    await this.conversationService.resetMessageForRetry(target.assistantMessageId);
+    const history = await this.conversationService.findRecentHistory(conversationId, 24);
+
+    yield* this.runAgentStream({
+      userId,
+      conversationId,
+      conversation,
+      runtime,
+      assistantMessageId: target.assistantMessageId,
+      question: target.question,
+      history,
+    });
+  }
+
+  private async loadConversationForChat(userId: string, conversationId: string) {
     const conversation = await this.conversationService.findRuntime(userId, conversationId);
     if (!conversation) {
       throw new BadRequestException('Conversation could not be found.');
@@ -84,9 +135,24 @@ export class ChatService {
       );
     }
 
-    let runtime: Awaited<ReturnType<RuntimeConfigService['resolve']>>;
+    return conversation;
+  }
+
+  private async resolveRuntimeConfig(
+    userId: string,
+    conversation: NonNullable<
+      Awaited<ReturnType<ConversationService['findRuntime']>>
+    >,
+    request: Request,
+  ): Promise<Awaited<ReturnType<RuntimeConfigService['resolve']>>> {
+    if (!conversation.llmConnectionId) {
+      throw buildRuntimeUnavailableException(
+        'Selected LLM runtime is unavailable.',
+      );
+    }
+
     try {
-      runtime = await this.runtimeConfigService.resolve(
+      return await this.runtimeConfigService.resolve(
         userId,
         conversation.databaseSourceId,
         conversation.llmConnectionId,
@@ -105,13 +171,28 @@ export class ChatService {
 
       throw error;
     }
+  }
 
-    const { assistantMessage } = await this.conversationService.createMessagePair(
+  private async *runAgentStream(params: {
+    userId: string;
+    conversationId: string;
+    conversation: NonNullable<
+      Awaited<ReturnType<ConversationService['findRuntime']>>
+    >;
+    runtime: Awaited<ReturnType<RuntimeConfigService['resolve']>>;
+    assistantMessageId: string;
+    question: string;
+    history: Awaited<ReturnType<ConversationService['findRecentHistory']>>;
+  }): AsyncGenerator<AgentStreamEvent> {
+    const {
+      userId,
       conversationId,
-      trimmedContent,
-    );
-
-    const history = await this.conversationService.findRecentHistory(conversationId, 24);
+      conversation,
+      runtime,
+      assistantMessageId,
+      question: trimmedContent,
+      history,
+    } = params;
 
     const requestId = this.messageStreamingService.createRequestId();
     const artifactBuffer: ArtifactInput[] = [];
@@ -131,12 +212,17 @@ export class ChatService {
     let traceRowCount: number | null = null;
     let traceCacheKey: string | null = null;
     let traceCacheHit = false;
+    // Tracks whether the message reached a persisted terminal state. If the
+    // client disconnects mid-stream (lost connection / tab switch), the
+    // generator is returned early and only `finally` runs — we use this to mark
+    // the message FAILED instead of leaving it stuck STREAMING forever.
+    let settled = false;
 
     this.ephemeralStateService.start(requestId, conversationId, userId);
 
     yield {
       type: 'message_started',
-      data: { messageId: assistantMessage.id },
+      data: { messageId: assistantMessageId },
     };
 
     try {
@@ -144,7 +230,7 @@ export class ChatService {
         requestId,
         conversationId,
         userId,
-        messageId: assistantMessage.id,
+        messageId: assistantMessageId,
         message: trimmedContent,
         history: history
           .reverse()
@@ -175,7 +261,7 @@ export class ChatService {
             yield {
               type: 'message_completed',
               data: {
-                messageId: assistantMessage.id,
+                messageId: assistantMessageId,
                 content: assistantContent,
                 tokenUsage: tokenUsage ?? undefined,
                 visualizationOutcome: event.data.visualizationOutcome ?? undefined,
@@ -189,7 +275,7 @@ export class ChatService {
             yield {
               type: 'message_failed',
               data: {
-                messageId: assistantMessage.id,
+                messageId: assistantMessageId,
                 error: failedMessage,
                 ...(failedErrorInfo ? { errorInfo: failedErrorInfo } : {}),
               },
@@ -199,7 +285,7 @@ export class ChatService {
             suggestions = Array.isArray(event.data.suggestions) ? event.data.suggestions : [];
             yield {
               type: 'suggestions_generated',
-              data: { messageId: assistantMessage.id, suggestions },
+              data: { messageId: assistantMessageId, suggestions },
             };
             break;
           case 'agent_trace':
@@ -237,7 +323,7 @@ export class ChatService {
       if (failedMessage) {
         const traceError = this.resolveTraceErrorMessage(failedMessage, failedErrorInfo);
         await this.conversationService.failMessage(
-          assistantMessage.id,
+          assistantMessageId,
           failedMessage,
           assistantContent,
         );
@@ -265,20 +351,21 @@ export class ChatService {
           databaseSourceId: conversation.databaseSourceId,
           conversationId,
           llmConnectionId: conversation.llmConnectionId,
-          messageId: assistantMessage.id,
+          messageId: assistantMessageId,
         });
-        await this.artifactService.saveArtifacts(assistantMessage.id, artifactBuffer);
+        await this.artifactService.saveArtifacts(assistantMessageId, artifactBuffer);
+        settled = true;
         return;
       }
 
       if (!didComplete) {
         yield {
           type: 'message_completed',
-          data: { messageId: assistantMessage.id, content: assistantContent },
+          data: { messageId: assistantMessageId, content: assistantContent },
         };
       }
 
-      await this.conversationService.completeMessage(assistantMessage.id, assistantContent, {
+      await this.conversationService.completeMessage(assistantMessageId, assistantContent, {
         tokenUsage,
         suggestions,
       });
@@ -305,9 +392,10 @@ export class ChatService {
         databaseSourceId: conversation.databaseSourceId,
         conversationId,
         llmConnectionId: conversation.llmConnectionId,
-        messageId: assistantMessage.id,
+        messageId: assistantMessageId,
       });
-      await this.artifactService.saveArtifacts(assistantMessage.id, artifactBuffer);
+      await this.artifactService.saveArtifacts(assistantMessageId, artifactBuffer);
+      settled = true;
     } catch (error) {
       const normalizedError = normalizeApiError(error, 'Agent execution failed.');
       const message = normalizedError.message;
@@ -315,11 +403,11 @@ export class ChatService {
       const traceError = this.resolveTraceErrorMessage(message, normalizedError);
 
       await this.conversationService.failMessage(
-        assistantMessage.id,
+        assistantMessageId,
         publicMessage,
         assistantContent,
       );
-      await this.artifactService.saveArtifacts(assistantMessage.id, artifactBuffer);
+      await this.artifactService.saveArtifacts(assistantMessageId, artifactBuffer);
       await this.persistAgentRunTrace({
         requestId,
         status: MessageStatus.FAILED,
@@ -344,13 +432,14 @@ export class ChatService {
         databaseSourceId: conversation.databaseSourceId,
         conversationId,
         llmConnectionId: conversation.llmConnectionId,
-        messageId: assistantMessage.id,
+        messageId: assistantMessageId,
       });
 
+      settled = true;
       yield {
         type: 'message_failed',
         data: {
-          messageId: assistantMessage.id,
+          messageId: assistantMessageId,
           error: publicMessage,
           errorInfo: {
             ...normalizedError,
@@ -362,6 +451,25 @@ export class ChatService {
         },
       };
     } finally {
+      if (!settled) {
+        // The consumer stopped reading before a terminal event (client
+        // disconnect / tab switch). Persist a terminal FAILED state so the
+        // message is retryable instead of stuck STREAMING. Best-effort: the
+        // socket is already gone, so we cannot yield to the client here.
+        try {
+          await this.conversationService.failMessage(
+            assistantMessageId,
+            'The response was interrupted before it finished. Please retry.',
+            assistantContent,
+          );
+          await this.artifactService.saveArtifacts(
+            assistantMessageId,
+            artifactBuffer,
+          );
+        } catch {
+          // Swallow — nothing more we can do for an abandoned request.
+        }
+      }
       this.ephemeralStateService.finish(requestId);
     }
   }

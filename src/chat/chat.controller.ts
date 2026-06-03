@@ -79,6 +79,32 @@ export class ChatController {
       this.toConversationId(id),
       content,
     );
+
+    await this.pipeStream(stream, response);
+  }
+
+  @Post('conversations/:id/messages/:messageId/retry')
+  async retryConversationMessage(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('messageId') messageId: string,
+    @Req() request: Request,
+    @Res() response: Response,
+  ) {
+    const stream = this.chatService.retryMessage(
+      user.id,
+      request,
+      this.toConversationId(id),
+      this.toMessageId(messageId),
+    );
+
+    await this.pipeStream(stream, response);
+  }
+
+  private async pipeStream(
+    stream: AsyncGenerator<unknown>,
+    response: Response,
+  ) {
     const firstEvent = await stream.next();
 
     response.setHeader('content-type', 'application/x-ndjson; charset=utf-8');
@@ -172,5 +198,14 @@ export class ChatController {
     }
 
     return conversationId;
+  }
+
+  private toMessageId(messageId: string) {
+    const trimmed = messageId.trim();
+    if (!trimmed) {
+      throw new BadRequestException('messageId is required');
+    }
+
+    return trimmed;
   }
 }

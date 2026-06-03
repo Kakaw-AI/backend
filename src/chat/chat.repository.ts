@@ -254,6 +254,53 @@ export class ChatRepository {
     });
   }
 
+  findAssistantMessage(conversationId: string, messageId: string) {
+    return this.prisma.message.findFirst({
+      where: {
+        id: messageId,
+        conversationId,
+        role: MessageRole.ASSISTANT,
+      },
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  findPrecedingUserMessage(conversationId: string, before: Date) {
+    return this.prisma.message.findFirst({
+      where: {
+        conversationId,
+        role: MessageRole.USER,
+        createdAt: { lt: before },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        content: true,
+      },
+    });
+  }
+
+  async resetMessageForRetry(messageId: string) {
+    await this.prisma.messageArtifact.deleteMany({ where: { messageId } });
+    return this.prisma.message.update({
+      where: { id: messageId },
+      data: {
+        content: '',
+        status: MessageStatus.STREAMING,
+        error: null,
+        tokenUsage: Prisma.JsonNull,
+        suggestions: [],
+      },
+      select: {
+        id: true,
+      },
+    });
+  }
+
   findRecentHistory(conversationId: string, limit: number) {
     return this.prisma.message.findMany({
       where: {

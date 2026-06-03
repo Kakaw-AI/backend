@@ -185,6 +185,43 @@ export class ConversationService {
     return this.chatRepository.findRecentHistory(conversationId, limit);
   }
 
+  /**
+   * Validates that a message can be retried and returns the original question
+   * (the user message immediately preceding the failed assistant message).
+   */
+  async prepareMessageRetry(conversationId: string, messageId: string) {
+    const message = await this.chatRepository.findAssistantMessage(
+      conversationId,
+      messageId,
+    );
+
+    if (!message) {
+      throw new BadRequestException('Message could not be found.');
+    }
+
+    if (message.status !== MessageStatus.FAILED) {
+      throw new BadRequestException('Only failed messages can be retried.');
+    }
+
+    const userMessage = await this.chatRepository.findPrecedingUserMessage(
+      conversationId,
+      message.createdAt,
+    );
+
+    const question = userMessage?.content.trim() ?? '';
+    if (!question) {
+      throw new BadRequestException(
+        'Could not find the original question to retry.',
+      );
+    }
+
+    return { assistantMessageId: message.id, question };
+  }
+
+  async resetMessageForRetry(messageId: string) {
+    return this.chatRepository.resetMessageForRetry(messageId);
+  }
+
   async completeMessage(
     messageId: string,
     content: string,
