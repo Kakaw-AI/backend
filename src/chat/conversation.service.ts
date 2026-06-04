@@ -263,6 +263,7 @@ export class ConversationService {
       databaseSource: {
         id: conversation.databaseSource.id,
         provider: conversation.databaseSource.provider as 'postgresql' | 'sqlite',
+        name: conversation.databaseSource.name,
         status: conversation.databaseSource.status,
         sqliteOriginalFilename: conversation.databaseSource.sqliteOriginalFilename,
         lastError: conversation.databaseSource.lastError,

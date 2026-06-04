@@ -75,6 +75,7 @@ const conversationSummarySelect = {
     select: {
       id: true,
       provider: true,
+      name: true,
       sqliteOriginalFilename: true,
       status: true,
       lastError: true,

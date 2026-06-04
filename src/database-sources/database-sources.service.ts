@@ -20,6 +20,7 @@ type CreateSqliteSourceInput = {
 
 type CreateDatabaseSourceInput = {
   provider: SupportedDatabaseProvider;
+  name?: string;
   connectionString?: string;
   sqlite?: CreateSqliteSourceInput;
 };
@@ -120,6 +121,7 @@ export class DatabaseSourcesService {
             label: this.resolveSourceLabel(
               latestSource.provider,
               latestSource.sqliteOriginalFilename,
+              latestSource.name,
             ),
             provider: latestSource.provider,
             status: latestSource.status,
@@ -141,11 +143,12 @@ export class DatabaseSourcesService {
   }
 
   async createForUser(userId: string, input: CreateDatabaseSourceInput) {
+    const name = input.name?.trim() || undefined;
     switch (input.provider) {
       case 'postgresql':
-        return this.createPostgresqlSource(userId, input.connectionString);
+        return this.createPostgresqlSource(userId, input.connectionString, name);
       case 'sqlite':
-        return this.createSqliteSource(userId, input.sqlite);
+        return this.createSqliteSource(userId, input.sqlite, name);
     }
   }
 
@@ -175,6 +178,7 @@ export class DatabaseSourcesService {
   private async createPostgresqlSource(
     userId: string,
     connectionString?: string,
+    name?: string,
   ) {
     if (!connectionString) {
       throw new BadRequestException(
@@ -185,6 +189,7 @@ export class DatabaseSourcesService {
     const pendingSource = await this.databaseSourcesRepository.createPending({
       userId,
       provider: 'postgresql',
+      name,
       connectionString,
     });
 
@@ -198,6 +203,7 @@ export class DatabaseSourcesService {
   private async createSqliteSource(
     userId: string,
     sqlite?: CreateSqliteSourceInput,
+    name?: string,
   ) {
     const objectKey = sqlite?.objectKey?.trim();
     if (!objectKey) {
@@ -229,6 +235,7 @@ export class DatabaseSourcesService {
     const pendingSource = await this.databaseSourcesRepository.createPending({
       userId,
       provider: 'sqlite',
+      name,
       sqliteObjectKey: objectKey,
       sqliteOriginalFilename: sqlite?.originalFilename?.trim() || 'database.sqlite',
       sqliteFingerprint,
@@ -288,7 +295,13 @@ export class DatabaseSourcesService {
   private resolveSourceLabel(
     provider: string,
     sqliteOriginalFilename?: string | null,
+    name?: string | null,
   ): string {
+    const explicitName = name?.trim();
+    if (explicitName) {
+      return explicitName;
+    }
+
     return provider === 'sqlite'
       ? sqliteOriginalFilename?.trim() || 'SQLite upload'
       : 'PostgreSQL connection';
@@ -298,6 +311,7 @@ export class DatabaseSourcesService {
     source: {
       id: string;
       provider: string;
+      name?: string | null;
       schemaFingerprint?: string | null;
       connectionString?: string | null;
       sqliteObjectKey?: string | null;
@@ -321,6 +335,7 @@ export class DatabaseSourcesService {
       label: this.resolveSourceLabel(
         source.provider,
         source.sqliteOriginalFilename,
+        source.name,
       ),
       schemaFingerprint: source.schemaFingerprint ?? undefined,
       connectionString:

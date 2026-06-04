@@ -15,6 +15,7 @@ import {
 
 type CreateDatabaseSourceBody = {
   provider?: unknown;
+  name?: unknown;
   connectionString?: unknown;
   objectKey?: unknown;
   originalFilename?: unknown;
@@ -60,6 +61,7 @@ export class DatabaseSourcesController {
   ) {
     const provider =
       typeof body.provider === 'string' ? body.provider.trim() : '';
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
     const connectionString =
       typeof body.connectionString === 'string'
         ? body.connectionString.trim()
@@ -93,6 +95,7 @@ export class DatabaseSourcesController {
 
     return this.databaseSourcesService.createForUser(user.id, {
       provider: provider as SupportedDatabaseProvider,
+      name: name || undefined,
       connectionString: connectionString || undefined,
       sqlite: objectKey
         ? { objectKey, originalFilename }

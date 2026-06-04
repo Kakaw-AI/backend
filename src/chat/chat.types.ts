@@ -331,6 +331,7 @@ export type PersistedConversationMessage = {
 export type ConversationDatabaseSourceResponse = {
   id: string;
   provider: 'postgresql' | 'sqlite';
+  name: string | null;
   status: string;
   sqliteOriginalFilename: string | null;
   lastError: string | null;

@@ -6,6 +6,7 @@ import { SupportedDatabaseProvider } from './database-sources.types';
 type CreatePendingDatabaseSourceInput = {
   userId: string;
   provider: SupportedDatabaseProvider;
+  name?: string;
   connectionString?: string;
   sqliteObjectKey?: string;
   sqliteOriginalFilename?: string;
@@ -23,6 +24,7 @@ export class DatabaseSourcesRepository {
       select: {
         id: true,
         provider: true,
+        name: true,
         status: true,
         sqliteOriginalFilename: true,
         lastError: true,
@@ -42,6 +44,7 @@ export class DatabaseSourcesRepository {
       select: {
         id: true,
         provider: true,
+        name: true,
         status: true,
         sqliteOriginalFilename: true,
         lastError: true,
@@ -60,6 +63,7 @@ export class DatabaseSourcesRepository {
       select: {
         id: true,
         provider: true,
+        name: true,
         status: true,
         connectionString: true,
         sqliteObjectKey: true,
@@ -104,6 +108,7 @@ export class DatabaseSourcesRepository {
       select: {
         id: true,
         provider: true,
+        name: true,
         status: true,
         sqliteOriginalFilename: true,
         lastError: true,
@@ -121,6 +126,7 @@ export class DatabaseSourcesRepository {
       data: {
         userId: input.userId,
         provider: input.provider,
+        name: input.name,
         status: DatabaseSourceStatus.PENDING,
         connectionString: input.connectionString,
         sqliteObjectKey: input.sqliteObjectKey,
@@ -148,6 +154,7 @@ export class DatabaseSourcesRepository {
       select: {
         id: true,
         provider: true,
+        name: true,
         status: true,
         connectionString: true,
         sqliteObjectKey: true,
@@ -182,6 +189,7 @@ export class DatabaseSourcesRepository {
       select: {
         id: true,
         provider: true,
+        name: true,
         status: true,
         sqliteOriginalFilename: true,
         lastError: true,
@@ -205,6 +213,7 @@ export class DatabaseSourcesRepository {
       select: {
         id: true,
         provider: true,
+        name: true,
         status: true,
         sqliteOriginalFilename: true,
         lastError: true,
@@ -224,6 +233,7 @@ export class DatabaseSourcesRepository {
         id: true,
         userId: true,
         provider: true,
+        name: true,
         status: true,
         connectionString: true,
         sqliteObjectKey: true,

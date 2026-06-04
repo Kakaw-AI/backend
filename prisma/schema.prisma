@@ -119,6 +119,7 @@ model Verification {
 model DatabaseSource {
   id                   String               @id @default(cuid())
   provider             String
+  name                 String?
   status               DatabaseSourceStatus @default(PENDING)
   connectionString     String?
   sqliteObjectKey      String?
