@@ -40,7 +40,7 @@ export class RuntimeConfigService {
     const model = llmModelOverride?.trim() || llmConnection.defaultModel;
 
     return {
-      database: this.databaseSourcesService.toAgentDatabaseRuntime(databaseSource),
+      database: await this.databaseSourcesService.toAgentDatabaseRuntime(databaseSource),
       knowledge: await this.databaseKnowledgeService.getRuntimeKnowledge(sourceId),
       llm: this.toLlmRuntime(llmConnection, model),
     };

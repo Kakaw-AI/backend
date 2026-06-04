@@ -328,6 +328,15 @@ export class ChatRepository {
     });
   }
 
+  async deleteConversation(userId: string, conversationId: string): Promise<number> {
+    // Owner-scoped delete. Messages, artifacts and agent run traces cascade via
+    // the onDelete: Cascade relations in the Prisma schema.
+    const result = await this.prisma.conversation.deleteMany({
+      where: { id: conversationId, userId },
+    });
+    return result.count;
+  }
+
   renameConversation(conversationId: string, title: string) {
     return this.prisma.conversation.update({
       where: { id: conversationId },

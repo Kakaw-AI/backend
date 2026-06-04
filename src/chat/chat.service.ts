@@ -44,6 +44,10 @@ export class ChatService {
     return this.conversationService.getConversation(userId, conversationId);
   }
 
+  async deleteConversation(userId: string, conversationId: string) {
+    return this.conversationService.deleteConversation(userId, conversationId);
+  }
+
   async updateConversationRuntime(
     userId: string,
     conversationId: string,

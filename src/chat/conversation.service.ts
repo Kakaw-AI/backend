@@ -163,6 +163,17 @@ export class ConversationService {
     return this.getConversation(userId, conversationId);
   }
 
+  async deleteConversation(userId: string, conversationId: string) {
+    const deleted = await this.chatRepository.deleteConversation(
+      userId,
+      conversationId,
+    );
+
+    if (deleted === 0) {
+      throw new BadRequestException('Conversation could not be found.');
+    }
+  }
+
   async createMessagePair(conversationId: string, content: string) {
     const userMessage = await this.chatRepository.createMessage({
       conversationId,

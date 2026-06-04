@@ -2,7 +2,9 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
@@ -44,6 +46,18 @@ export class ChatController {
     @Body() body: CreateConversationBody,
   ) {
     return this.chatService.createConversation(user.id, this.toCreateConversationInput(body));
+  }
+
+  @Delete('conversations/:id')
+  @HttpCode(204)
+  async deleteConversation(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    await this.chatService.deleteConversation(
+      user.id,
+      this.toConversationId(id),
+    );
   }
 
   @Post('conversations/:id/runtime')

@@ -7,7 +7,7 @@ type CreatePendingDatabaseSourceInput = {
   userId: string;
   provider: SupportedDatabaseProvider;
   connectionString?: string;
-  sqliteFilePath?: string;
+  sqliteObjectKey?: string;
   sqliteOriginalFilename?: string;
   sqliteFingerprint?: string;
 };
@@ -62,7 +62,7 @@ export class DatabaseSourcesRepository {
         provider: true,
         status: true,
         connectionString: true,
-        sqliteFilePath: true,
+        sqliteObjectKey: true,
         sqliteOriginalFilename: true,
         sqliteFingerprint: true,
         schemaFingerprint: true,
@@ -123,7 +123,7 @@ export class DatabaseSourcesRepository {
         provider: input.provider,
         status: DatabaseSourceStatus.PENDING,
         connectionString: input.connectionString,
-        sqliteFilePath: input.sqliteFilePath,
+        sqliteObjectKey: input.sqliteObjectKey,
         sqliteOriginalFilename: input.sqliteOriginalFilename,
         sqliteFingerprint: input.sqliteFingerprint,
       },
@@ -150,7 +150,7 @@ export class DatabaseSourcesRepository {
         provider: true,
         status: true,
         connectionString: true,
-        sqliteFilePath: true,
+        sqliteObjectKey: true,
         sqliteOriginalFilename: true,
         lastError: true,
         lastTestedAt: true,
@@ -226,7 +226,7 @@ export class DatabaseSourcesRepository {
         provider: true,
         status: true,
         connectionString: true,
-        sqliteFilePath: true,
+        sqliteObjectKey: true,
         sqliteOriginalFilename: true,
         sqliteFingerprint: true,
         schemaFingerprint: true,

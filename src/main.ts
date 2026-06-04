@@ -1,13 +1,34 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
-import { Logger } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
-import { toNodeHandler } from 'better-auth/node';
-import { json, urlencoded } from 'express';
+import 'dotenv/config';
 import 'reflect-metadata';
-import { AppModule } from './app.module';
-import { auth } from './auth/better-auth.config';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { ensureDatabaseReady } from './config/database.bootstrap';
+import { loadInfisicalSecrets } from './config/infisical.bootstrap';
 
 async function bootstrap() {
+  // Load secrets from Infisical into process.env BEFORE importing any module
+  // that reads env at import time (better-auth.config, Prisma datasource).
+  await loadInfisicalSecrets();
+
+  // Create the database if missing and apply migrations before the app boots
+  // (Prisma connects during AppModule init).
+  await ensureDatabaseReady();
+
+  const [
+    { Logger },
+    { NestFactory },
+    { toNodeHandler },
+    { json, urlencoded },
+    { AppModule },
+    { auth },
+  ] = await Promise.all([
+    import('@nestjs/common'),
+    import('@nestjs/core'),
+    import('better-auth/node'),
+    import('express'),
+    import('./app.module'),
+    import('./auth/better-auth.config'),
+  ]);
+
   // bodyParser: false — Better Auth must read the raw body stream itself.
   // NestJS's built-in body-parser would consume the stream before Better Auth.
   const app = await NestFactory.create(AppModule, { bodyParser: false });

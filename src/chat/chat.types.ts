@@ -25,7 +25,8 @@ export type AgentDatabaseRuntime =
     label: string;
     schemaFingerprint?: string;
     connectionString?: string;
-    sqliteFilePath?: string;
+    sqliteObjectKey?: string;
+    sqliteDownloadUrl?: string;
     sqliteOriginalFilename?: string;
   };
 

@@ -121,7 +121,7 @@ model DatabaseSource {
   provider             String
   status               DatabaseSourceStatus @default(PENDING)
   connectionString     String?
-  sqliteFilePath       String?
+  sqliteObjectKey      String?
   sqliteOriginalFilename String?
   sqliteFingerprint    String?
   schemaFingerprint    String?

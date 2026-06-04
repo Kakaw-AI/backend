@@ -4,40 +4,26 @@ import {
   Controller,
   Param,
   Post,
-  Req,
-  UploadedFile,
-  UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
-import type { Request } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/better-auth.config';
 import { DatabaseSourcesService } from './database-sources.service';
 import {
   SUPPORTED_DATABASE_PROVIDERS,
   SupportedDatabaseProvider,
-  UploadedSqliteFile,
 } from './database-sources.types';
-import {
-  SQLITE_UPLOAD_FIELD_NAME,
-  sqliteFileInterceptorOptions,
-} from './sqlite-upload';
 
 type CreateDatabaseSourceBody = {
   provider?: unknown;
   connectionString?: unknown;
+  objectKey?: unknown;
+  originalFilename?: unknown;
 };
 
-type UploadedFilePayload = {
-  filename: string;
-  mimetype: string;
-  originalname: string;
-  path: string;
-  size: number;
-};
-
-type RequestWithFileValidation = Request & {
-  fileValidationError?: string;
+type PresignUploadBody = {
+  filename?: unknown;
+  size?: unknown;
+  contentType?: unknown;
 };
 
 @Controller('database-sources')
@@ -46,34 +32,47 @@ export class DatabaseSourcesController {
     private readonly databaseSourcesService: DatabaseSourcesService,
   ) {}
 
-  @UseInterceptors(
-    FileInterceptor(SQLITE_UPLOAD_FIELD_NAME, sqliteFileInterceptorOptions),
-  )
+  @Post('uploads/presign')
+  presignUpload(
+    @CurrentUser() user: AuthUser,
+    @Body() body: PresignUploadBody,
+  ) {
+    const filename = typeof body.filename === 'string' ? body.filename.trim() : '';
+    const size = typeof body.size === 'number' ? body.size : Number(body.size);
+    const contentType =
+      typeof body.contentType === 'string' ? body.contentType.trim() : undefined;
+
+    if (!filename) {
+      throw new BadRequestException('filename is required');
+    }
+
+    return this.databaseSourcesService.presignSqliteUpload(user.id, {
+      filename,
+      size,
+      contentType,
+    });
+  }
+
   @Post()
   async createDatabaseSource(
     @CurrentUser() user: AuthUser,
     @Body() body: CreateDatabaseSourceBody,
-    @UploadedFile() file?: UploadedFilePayload,
-    @Req() request?: RequestWithFileValidation,
   ) {
-    if (request?.fileValidationError) {
-      throw new BadRequestException(request.fileValidationError);
-    }
-
     const provider =
       typeof body.provider === 'string' ? body.provider.trim() : '';
     const connectionString =
       typeof body.connectionString === 'string'
         ? body.connectionString.trim()
         : '';
+    const objectKey =
+      typeof body.objectKey === 'string' ? body.objectKey.trim() : '';
+    const originalFilename =
+      typeof body.originalFilename === 'string'
+        ? body.originalFilename.trim()
+        : '';
 
     if (!provider) {
-      if (file?.path) {
-        await this.databaseSourcesService.discardUploadedFile(file.path);
-      }
-      throw new BadRequestException(
-        'provider is required',
-      );
+      throw new BadRequestException('provider is required');
     }
 
     if (
@@ -81,16 +80,12 @@ export class DatabaseSourcesController {
         provider as SupportedDatabaseProvider,
       )
     ) {
-      if (file?.path) {
-        await this.databaseSourcesService.discardUploadedFile(file.path);
-      }
       throw new BadRequestException(
         'Unsupported provider. Only postgresql and sqlite are available right now.',
       );
     }
 
-    if (provider !== 'sqlite' && file?.path) {
-      await this.databaseSourcesService.discardUploadedFile(file.path);
+    if (provider !== 'sqlite' && objectKey) {
       throw new BadRequestException(
         'File uploads are only supported for SQLite connections.',
       );
@@ -99,8 +94,8 @@ export class DatabaseSourcesController {
     return this.databaseSourcesService.createForUser(user.id, {
       provider: provider as SupportedDatabaseProvider,
       connectionString: connectionString || undefined,
-      sqliteFile: file
-        ? this.toUploadedSqliteFile(file)
+      sqlite: objectKey
+        ? { objectKey, originalFilename }
         : undefined,
     });
   }
@@ -116,15 +111,5 @@ export class DatabaseSourcesController {
     }
 
     return this.databaseSourcesService.refreshForUser(user.id, sourceId);
-  }
-
-  private toUploadedSqliteFile(file: UploadedFilePayload): UploadedSqliteFile {
-    return {
-      filename: file.filename,
-      originalName: file.originalname,
-      mimeType: file.mimetype,
-      path: file.path,
-      size: file.size,
-    };
   }
 }

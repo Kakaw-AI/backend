@@ -1,21 +1,27 @@
-import { unlink } from 'node:fs/promises';
+import { extname } from 'node:path';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { DatabaseSourceStatus } from '@prisma/client';
 import { DatabaseKnowledgeService } from '../database-knowledge/database-knowledge.service';
 import { AgentGatewayService } from '../chat/agent-gateway.service';
 import { normalizeApiError } from '../common/errors/error-response';
+import { R2Service } from '../storage/r2.service';
 import { DatabaseSourcesRepository } from './database-sources.repository';
 import {
+  SQLITE_ALLOWED_EXTENSIONS,
+  SQLITE_UPLOAD_MAX_BYTES,
   SupportedDatabaseProvider,
-  UploadedSqliteFile,
 } from './database-sources.types';
 import type { AgentDatabaseRuntime } from '../chat/chat.types';
-import { SqliteFingerprintService } from './sqlite-fingerprint.service';
+
+type CreateSqliteSourceInput = {
+  objectKey: string;
+  originalFilename: string;
+};
 
 type CreateDatabaseSourceInput = {
   provider: SupportedDatabaseProvider;
   connectionString?: string;
-  sqliteFile?: UploadedSqliteFile;
+  sqlite?: CreateSqliteSourceInput;
 };
 
 @Injectable()
@@ -26,8 +32,47 @@ export class DatabaseSourcesService {
     private readonly databaseSourcesRepository: DatabaseSourcesRepository,
     private readonly agentGatewayService: AgentGatewayService,
     private readonly databaseKnowledgeService: DatabaseKnowledgeService,
-    private readonly sqliteFingerprintService: SqliteFingerprintService,
+    private readonly r2Service: R2Service,
   ) {}
+
+  /**
+   * Issues a short-lived presigned PUT URL so the browser uploads the SQLite
+   * file straight to R2 — our server never receives the file bytes.
+   */
+  async presignSqliteUpload(
+    userId: string,
+    input: { filename: string; size: number; contentType?: string },
+  ): Promise<{ uploadUrl: string; objectKey: string }> {
+    const filename = input.filename?.trim();
+    if (!filename) {
+      throw new BadRequestException('filename is required');
+    }
+
+    const extension = extname(filename).toLowerCase();
+    if (!SQLITE_ALLOWED_EXTENSIONS.has(extension)) {
+      throw new BadRequestException(
+        'SQLite uploads must use a .db, .sqlite, or .sqlite3 file.',
+      );
+    }
+
+    if (
+      typeof input.size !== 'number' ||
+      input.size <= 0 ||
+      input.size > SQLITE_UPLOAD_MAX_BYTES
+    ) {
+      throw new BadRequestException(
+        `File must be between 1 byte and ${SQLITE_UPLOAD_MAX_BYTES} bytes.`,
+      );
+    }
+
+    const objectKey = this.r2Service.buildSqliteKey(userId, filename);
+    const uploadUrl = await this.r2Service.presignUpload(
+      objectKey,
+      input.contentType?.trim() || 'application/octet-stream',
+    );
+
+    return { uploadUrl, objectKey };
+  }
 
   listForUser(userId: string) {
     return this.databaseSourcesRepository.findByUser(userId);
@@ -72,11 +117,10 @@ export class DatabaseSourcesService {
       latestSource.status !== DatabaseSourceStatus.READY
         ? {
             id: latestSource.id,
-            label: this.toAgentDatabaseRuntime({
-              id: latestSource.id,
-              provider: latestSource.provider,
-              sqliteOriginalFilename: latestSource.sqliteOriginalFilename,
-            }).label,
+            label: this.resolveSourceLabel(
+              latestSource.provider,
+              latestSource.sqliteOriginalFilename,
+            ),
             provider: latestSource.provider,
             status: latestSource.status,
             lastError: latestSource.lastError,
@@ -101,7 +145,7 @@ export class DatabaseSourcesService {
       case 'postgresql':
         return this.createPostgresqlSource(userId, input.connectionString);
       case 'sqlite':
-        return this.createSqliteSource(userId, input.sqliteFile);
+        return this.createSqliteSource(userId, input.sqlite);
     }
   }
 
@@ -128,10 +172,6 @@ export class DatabaseSourcesService {
     return syncingSource;
   }
 
-  async discardUploadedFile(filePath: string) {
-    await unlink(filePath).catch(() => undefined);
-  }
-
   private async createPostgresqlSource(
     userId: string,
     connectionString?: string,
@@ -155,14 +195,27 @@ export class DatabaseSourcesService {
     return syncingSource;
   }
 
-  private async createSqliteSource(userId: string, sqliteFile?: UploadedSqliteFile) {
-    if (!sqliteFile) {
-      throw new BadRequestException('A SQLite database file is required.');
+  private async createSqliteSource(
+    userId: string,
+    sqlite?: CreateSqliteSourceInput,
+  ) {
+    const objectKey = sqlite?.objectKey?.trim();
+    if (!objectKey) {
+      throw new BadRequestException('A SQLite database upload is required.');
     }
 
-    const sqliteFingerprint = await this.sqliteFingerprintService.fingerprint(
-      sqliteFile.path,
-    );
+    // Confirm the browser's direct upload landed in R2 and use the object's
+    // ETag as a content fingerprint (replaces hashing a local file).
+    let head: { etag: string; size: number };
+    try {
+      head = await this.r2Service.headObject(objectKey);
+    } catch {
+      throw new BadRequestException(
+        'The uploaded SQLite file could not be found in storage. Please re-upload.',
+      );
+    }
+
+    const sqliteFingerprint = head.etag || objectKey;
     const existingSource =
       await this.databaseSourcesRepository.findSqliteDuplicateByFingerprint(
         userId,
@@ -170,15 +223,14 @@ export class DatabaseSourcesService {
       );
 
     if (existingSource) {
-      await this.discardUploadedFile(sqliteFile.path);
       return existingSource;
     }
 
     const pendingSource = await this.databaseSourcesRepository.createPending({
       userId,
       provider: 'sqlite',
-      sqliteFilePath: sqliteFile.path,
-      sqliteOriginalFilename: sqliteFile.originalName,
+      sqliteObjectKey: objectKey,
+      sqliteOriginalFilename: sqlite?.originalFilename?.trim() || 'database.sqlite',
       sqliteFingerprint,
     });
 
@@ -203,7 +255,7 @@ export class DatabaseSourcesService {
       const syncResult = await this.agentGatewayService.syncDatabaseSource({
         requestId: this.agentGatewayService.createRequestId(),
         userId: source.userId,
-        database: this.toAgentDatabaseRuntime(source),
+        database: await this.toAgentDatabaseRuntime(source),
       });
 
       await this.databaseKnowledgeService.replaceCatalog(source.id, {
@@ -233,36 +285,53 @@ export class DatabaseSourcesService {
     }
   }
 
-  toAgentDatabaseRuntime(
+  private resolveSourceLabel(
+    provider: string,
+    sqliteOriginalFilename?: string | null,
+  ): string {
+    return provider === 'sqlite'
+      ? sqliteOriginalFilename?.trim() || 'SQLite upload'
+      : 'PostgreSQL connection';
+  }
+
+  async toAgentDatabaseRuntime(
     source: {
       id: string;
       provider: string;
       schemaFingerprint?: string | null;
       connectionString?: string | null;
-      sqliteFilePath?: string | null;
+      sqliteObjectKey?: string | null;
       sqliteOriginalFilename?: string | null;
     },
-  ): AgentDatabaseRuntime {
+  ): Promise<AgentDatabaseRuntime> {
+    const isSqlite = source.provider === 'sqlite';
+    const sqliteObjectKey = isSqlite
+      ? source.sqliteObjectKey ?? undefined
+      : undefined;
+
+    // Short-lived presigned GET so the agent can download the file once and
+    // cache it locally — the file never passes back through our server.
+    const sqliteDownloadUrl = sqliteObjectKey
+      ? await this.r2Service.presignDownload(sqliteObjectKey)
+      : undefined;
+
     return {
       sourceId: source.id,
       provider: source.provider as SupportedDatabaseProvider,
-      label:
-        source.provider === 'sqlite'
-          ? source.sqliteOriginalFilename?.trim() || 'SQLite upload'
-          : 'PostgreSQL connection',
+      label: this.resolveSourceLabel(
+        source.provider,
+        source.sqliteOriginalFilename,
+      ),
       schemaFingerprint: source.schemaFingerprint ?? undefined,
       connectionString:
         source.provider === 'postgresql'
           ? source.connectionString ?? undefined
           : undefined,
-      sqliteFilePath:
-        source.provider === 'sqlite'
-          ? source.sqliteFilePath ?? undefined
-          : undefined,
-      sqliteOriginalFilename:
-        source.provider === 'sqlite'
-          ? source.sqliteOriginalFilename ?? undefined
-          : undefined,
+      sqliteObjectKey,
+      sqliteDownloadUrl,
+      sqliteOriginalFilename: isSqlite
+        ? source.sqliteOriginalFilename ?? undefined
+        : undefined,
     };
   }
 }
