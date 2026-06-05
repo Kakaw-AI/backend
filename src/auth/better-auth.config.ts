@@ -7,11 +7,25 @@ import { PrismaClient } from '@prisma/client';
 // initialises at module load time, before NestJS DI is ready.
 const prisma = new PrismaClient();
 
+// When the API and frontend are on different subdomains of one site (e.g.
+// api.kakaw.gitnasr.com + kakaw.gitnasr.com), set COOKIE_DOMAIN to the shared
+// parent (".gitnasr.com") so the session cookie is sent to both — the frontend
+// middleware reads it and the API receives it on credentialed requests.
+const cookieDomain = process.env.COOKIE_DOMAIN;
+
 export const auth = betterAuth({
   database: prismaAdapter(prisma, { provider: 'postgresql' }),
 
   baseURL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3001',
   secret: process.env.BETTER_AUTH_SECRET,
+
+  ...(cookieDomain
+    ? {
+        advanced: {
+          crossSubDomainCookies: { enabled: true, domain: cookieDomain },
+        },
+      }
+    : {}),
 
   socialProviders: {
     google: {

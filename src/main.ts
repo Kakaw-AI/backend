@@ -32,6 +32,15 @@ async function bootstrap() {
   // bodyParser: false — Better Auth must read the raw body stream itself.
   // NestJS's built-in body-parser would consume the stream before Better Auth.
   const app = await NestFactory.create(AppModule, { bodyParser: false });
+
+  // The browser calls this API directly from the frontend origin (a same-site
+  // subdomain), so credentialed CORS must be enabled. Registered before the
+  // Better Auth routes below so preflight + headers cover /api/auth too.
+  app.enableCors({
+    origin: process.env.FRONTEND_URL ?? 'http://localhost:3000',
+    credentials: true,
+  });
+
   const logger = new Logger('Bootstrap');
   const authHandler = toNodeHandler(auth);
   const expressApp = app.getHttpAdapter().getInstance();
