@@ -20,6 +20,7 @@ async function bootstrap() {
     { json, urlencoded },
     { AppModule },
     { auth },
+    { Logger: PinoLogger },
   ] = await Promise.all([
     import('@nestjs/common'),
     import('@nestjs/core'),
@@ -27,11 +28,20 @@ async function bootstrap() {
     import('express'),
     import('./app.module'),
     import('./auth/better-auth.config'),
+    import('nestjs-pino'),
   ]);
 
   // bodyParser: false — Better Auth must read the raw body stream itself.
   // NestJS's built-in body-parser would consume the stream before Better Auth.
-  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  // bufferLogs: true holds boot logs until the pino logger is wired in below.
+  const app = await NestFactory.create(AppModule, {
+    bodyParser: false,
+    bufferLogs: true,
+  });
+
+  // Route all Nest logging (including `new Logger(ctx)` calls everywhere) through
+  // pino, so the backend emits structured JSON like the agent does.
+  app.useLogger(app.get(PinoLogger));
 
   // The browser calls this API directly from the frontend origin (a same-site
   // subdomain), so credentialed CORS must be enabled. Registered before the
