@@ -1,4 +1,7 @@
 import 'dotenv/config';
+// Telemetry must initialize before any instrumented module is imported so the
+// OpenTelemetry auto-instrumentations can patch http/express/pg/nestjs.
+import './telemetry';
 import 'reflect-metadata';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { ensureDatabaseReady } from './config/database.bootstrap';
