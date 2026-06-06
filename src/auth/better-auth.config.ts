@@ -8,7 +8,7 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 // When the API and frontend are on different subdomains of one site (e.g.
-// api.kakaw.gitnasr.com + kakaw.gitnasr.com), set COOKIE_DOMAIN to the shared
+// k-api.gitnasr.com + kakaw.gitnasr.com), set COOKIE_DOMAIN to the shared
 // parent (".gitnasr.com") so the session cookie is sent to both — the frontend
 // middleware reads it and the API receives it on credentialed requests.
 const cookieDomain = process.env.COOKIE_DOMAIN;
