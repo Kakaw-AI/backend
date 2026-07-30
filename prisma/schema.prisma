@@ -83,6 +83,7 @@ model Session {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@map("sessions")
 }
 
@@ -167,6 +168,7 @@ model LlmConnection {
   conversations  Conversation[]
   agentRunTraces AgentRunTrace[]
 
+  @@index([userId])
   @@map("llm_connections")
 }
 
@@ -188,6 +190,8 @@ model Conversation {
   agentRunTraces   AgentRunTrace[]
 
   @@index([userId, updatedAt])
+  // The conversation list sorts on lastMessageAt first.
+  @@index([userId, lastMessageAt])
   @@map("conversations")
 }
 
@@ -353,5 +357,7 @@ model AgentRunTrace {
 
   @@index([userId, databaseSourceId, createdAt])
   @@index([conversationId, createdAt])
+  // Every conversation load does a top-1 lookup per message on this relation.
+  @@index([messageId, createdAt])
   @@map("agent_run_traces")
 }

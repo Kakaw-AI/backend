@@ -2,7 +2,6 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import {
   DatabaseSourceStatus,
   LlmConnectionStatus,
-  MessageRole,
   MessageStatus,
   Prisma,
 } from '@prisma/client';
@@ -175,21 +174,7 @@ export class ConversationService {
   }
 
   async createMessagePair(conversationId: string, content: string) {
-    const userMessage = await this.chatRepository.createMessage({
-      conversationId,
-      role: MessageRole.USER,
-      status: MessageStatus.COMPLETED,
-      content,
-    });
-
-    const assistantMessage = await this.chatRepository.createMessage({
-      conversationId,
-      role: MessageRole.ASSISTANT,
-      status: MessageStatus.STREAMING,
-      content: '',
-    });
-
-    return { userMessage, assistantMessage };
+    return this.chatRepository.createMessagePair({ conversationId, content });
   }
 
   async findRecentHistory(conversationId: string, limit: number) {

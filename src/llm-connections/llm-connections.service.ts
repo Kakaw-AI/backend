@@ -227,8 +227,10 @@ export class LlmConnectionsService {
   }
 
   private async getByIdForUser(userId: string, id: string) {
-    const connections = await this.llmConnectionsRepository.findByUser(userId);
-    const connection = connections.find((item) => item.id === id);
+    const connection = await this.llmConnectionsRepository.findByUserAndId(
+      userId,
+      id,
+    );
 
     if (!connection) {
       throw new BadRequestException('Saved connection could not be loaded.');

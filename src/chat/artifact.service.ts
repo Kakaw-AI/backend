@@ -30,12 +30,6 @@ export class ArtifactService {
   }
 
   async saveArtifacts(messageId: string, artifacts: ArtifactInput[]): Promise<void> {
-    for (const artifact of artifacts) {
-      await this.chatRepository.createArtifact({
-        messageId,
-        type: artifact.type,
-        payload: artifact.payload,
-      });
-    }
+    await this.chatRepository.createArtifacts(messageId, artifacts);
   }
 }

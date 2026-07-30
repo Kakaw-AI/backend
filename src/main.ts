@@ -24,6 +24,7 @@ async function bootstrap() {
     { AppModule },
     { auth },
     { Logger: PinoLogger },
+    { default: compression },
   ] = await Promise.all([
     import('@nestjs/common'),
     import('@nestjs/core'),
@@ -32,6 +33,7 @@ async function bootstrap() {
     import('./app.module'),
     import('./auth/better-auth.config'),
     import('nestjs-pino'),
+    import('compression'),
   ]);
 
   // bodyParser: false — Better Auth must read the raw body stream itself.
@@ -70,6 +72,21 @@ async function bootstrap() {
   // Express v5, `/{*any}` is the supported wildcard syntax.
   expressApp.all('/api/auth', authHandler);
   expressApp.all('/api/auth/{*any}', authHandler);
+
+  // Conversation payloads carry every message with its full result-set
+  // artifacts, so they compress well. The NDJSON chat stream is excluded: gzip
+  // buffers until its window fills, which would hold back streamed tokens.
+  app.use(
+    compression({
+      filter: (req, res) => {
+        const contentType = String(res.getHeader('content-type') ?? '');
+        if (contentType.includes('ndjson')) {
+          return false;
+        }
+        return compression.filter(req, res);
+      },
+    }),
+  );
 
   // Re-add body parsing for all NestJS-handled routes.
   app.use(json({ verify: captureRawBody }));

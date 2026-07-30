@@ -39,9 +39,17 @@ export class RuntimeConfigService {
     ]);
     const model = llmModelOverride?.trim() || llmConnection.defaultModel;
 
+    // Both of these sit on the critical path before the first streamed byte.
+    // toAgentDatabaseRuntime presigns an R2 download for SQLite sources and the
+    // knowledge load hits the catalog cache, so neither depends on the other.
+    const [database, knowledge] = await Promise.all([
+      this.databaseSourcesService.toAgentDatabaseRuntime(databaseSource),
+      this.databaseKnowledgeService.getRuntimeKnowledge(sourceId),
+    ]);
+
     return {
-      database: await this.databaseSourcesService.toAgentDatabaseRuntime(databaseSource),
-      knowledge: await this.databaseKnowledgeService.getRuntimeKnowledge(sourceId),
+      database,
+      knowledge,
       llm: this.toLlmRuntime(llmConnection, model),
     };
   }

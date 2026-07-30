@@ -135,6 +135,15 @@ export class DatabaseKnowledgeRepository {
     }, { timeout: 30_000 });
   }
 
+  async getSchemaFingerprint(sourceId: string): Promise<string | null> {
+    const source = await this.prisma.databaseSource.findUnique({
+      where: { id: sourceId },
+      select: { schemaFingerprint: true },
+    });
+
+    return source?.schemaFingerprint ?? null;
+  }
+
   async getRuntimeKnowledge(sourceId: string): Promise<DatabaseKnowledgeRuntime> {
     const source = await this.prisma.databaseSource.findUnique({
       where: { id: sourceId },

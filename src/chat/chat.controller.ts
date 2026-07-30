@@ -119,11 +119,18 @@ export class ChatController {
     stream: AsyncGenerator<unknown>,
     response: Response,
   ) {
+    // The first event is awaited before any header is written on purpose: setup
+    // failures (unknown conversation, missing LLM credentials, unauthorized)
+    // throw out of the generator here and Nest's exception filter can still map
+    // them to a real HTTP status. Once headers are flushed that is no longer
+    // possible. Keeping setup off the critical path is handled upstream, by
+    // caching the schema catalog and parallelizing the runtime resolution.
     const firstEvent = await stream.next();
 
     response.setHeader('content-type', 'application/x-ndjson; charset=utf-8');
     response.setHeader('cache-control', 'no-cache, no-transform');
     response.setHeader('connection', 'keep-alive');
+    response.flushHeaders();
 
     if (!firstEvent.done) {
       response.write(`${JSON.stringify(firstEvent.value)}\n`);

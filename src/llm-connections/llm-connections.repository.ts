@@ -53,6 +53,37 @@ export class LlmConnectionsRepository {
     }));
   }
 
+  async findByUserAndId(userId: string, id: string) {
+    const connection = await this.prisma.llmConnection.findFirst({
+      where: { id, userId },
+      select: {
+        id: true,
+        provider: true,
+        status: true,
+        displayName: true,
+        defaultModel: true,
+        apiKeyLastFour: true,
+        usesLinkedAccount: true,
+        linkedProviderId: true,
+        baseUrl: true,
+        isActive: true,
+        lastError: true,
+        lastTestedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!connection) {
+      return null;
+    }
+
+    return {
+      ...connection,
+      provider: fromPrismaLlmProvider(connection.provider),
+    };
+  }
+
   async findRuntimeByUserAndId(userId: string, id: string) {
     const connection = await this.prisma.llmConnection.findFirst({
       where: { id, userId },

@@ -20,19 +20,20 @@ type UpdateConversationRuntimeRecordInput = {
   llmModelOverride: string | null;
 };
 
-type CreateMessageRecordInput = {
+type CreateMessagePairRecordInput = {
   conversationId: string;
-  role: MessageRole;
-  status: MessageStatus;
   content: string;
-  error?: string;
 };
 
-type CreateArtifactRecordInput = {
-  messageId: string;
-  type: MessageArtifactType;
-  payload: object;
-};
+const messageRecordSelect = {
+  id: true,
+  role: true,
+  status: true,
+  content: true,
+  error: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.MessageSelect;
 
 const conversationMessageSelect = {
   id: true,
@@ -171,28 +172,46 @@ export class ChatRepository {
     });
   }
 
-  async createMessage(input: CreateMessageRecordInput) {
-    const message = await this.prisma.message.create({
-      data: {
-        conversationId: input.conversationId,
-        role: input.role,
-        status: input.status,
-        content: input.content,
-        error: input.error,
-      },
-      select: {
-        id: true,
-        role: true,
-        status: true,
-        content: true,
-        error: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+  /**
+   * Creates the user + assistant message pair and touches the conversation in a
+   * single round trip. This runs before the first streamed byte reaches the
+   * browser, so it is deliberately batched rather than issued as four sequential
+   * statements. Timestamps are assigned here so the pair orders deterministically
+   * under `orderBy createdAt` even when both rows land in the same millisecond.
+   */
+  async createMessagePair(input: CreateMessagePairRecordInput) {
+    const userCreatedAt = new Date();
+    const assistantCreatedAt = new Date(userCreatedAt.getTime() + 1);
 
-    await this.touchConversation(input.conversationId, message.createdAt);
-    return message;
+    const [userMessage, assistantMessage] = await this.prisma.$transaction([
+      this.prisma.message.create({
+        data: {
+          conversationId: input.conversationId,
+          role: MessageRole.USER,
+          status: MessageStatus.COMPLETED,
+          content: input.content,
+          createdAt: userCreatedAt,
+        },
+        select: messageRecordSelect,
+      }),
+      this.prisma.message.create({
+        data: {
+          conversationId: input.conversationId,
+          role: MessageRole.ASSISTANT,
+          status: MessageStatus.STREAMING,
+          content: '',
+          createdAt: assistantCreatedAt,
+        },
+        select: messageRecordSelect,
+      }),
+      this.prisma.conversation.update({
+        where: { id: input.conversationId },
+        data: { lastMessageAt: assistantCreatedAt },
+        select: { id: true },
+      }),
+    ]);
+
+    return { userMessage, assistantMessage };
   }
 
   setStreamingMessageContent(messageId: string, content: string) {
@@ -242,16 +261,27 @@ export class ChatRepository {
     });
   }
 
-  createArtifact(input: CreateArtifactRecordInput) {
-    return this.prisma.messageArtifact.create({
-      data: {
-        messageId: input.messageId,
-        type: input.type,
-        payload: input.payload,
-      },
-      select: {
-        id: true,
-      },
+  /**
+   * Artifacts are read back with `orderBy createdAt`, so timestamps are assigned
+   * here to preserve the order they were produced in — a plain createMany would
+   * stamp every row with the same `now()`.
+   */
+  async createArtifacts(
+    messageId: string,
+    artifacts: Array<{ type: MessageArtifactType; payload: object }>,
+  ): Promise<void> {
+    if (artifacts.length === 0) {
+      return;
+    }
+
+    const baseTime = Date.now();
+    await this.prisma.messageArtifact.createMany({
+      data: artifacts.map((artifact, position) => ({
+        messageId,
+        type: artifact.type,
+        payload: artifact.payload as Prisma.InputJsonValue,
+        createdAt: new Date(baseTime + position),
+      })),
     });
   }
 
@@ -408,15 +438,4 @@ export class ChatRepository {
     });
   }
 
-  private touchConversation(conversationId: string, at: Date) {
-    return this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: {
-        lastMessageAt: at,
-      },
-      select: {
-        id: true,
-      },
-    });
-  }
 }
