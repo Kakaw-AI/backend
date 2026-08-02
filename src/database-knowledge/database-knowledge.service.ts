@@ -22,6 +22,7 @@ export class DatabaseKnowledgeService {
 
   constructor(
     private readonly databaseKnowledgeRepository: DatabaseKnowledgeRepository,
+    private readonly queryMemoryService: QueryMemoryService,
   ) {}
 
   async replaceCatalog(sourceId: string, catalog: DatabaseCatalogInput) {
@@ -30,6 +31,34 @@ export class DatabaseKnowledgeService {
       catalog,
     );
     this.runtimeCache.delete(sourceId);
+
+    // Stored SQL was written against the previous schema. Rather than discard
+    // the whole corpus whenever any column changes anywhere, check each entry's
+    // identifiers against the new catalog and retire only the broken ones.
+    if (catalog.schemaFingerprint) {
+      const identifiers = new Set<string>();
+      for (const table of catalog.tables) {
+        identifiers.add(table.name.toLowerCase());
+        if (table.schemaName) {
+          identifiers.add(table.schemaName.toLowerCase());
+        }
+        for (const column of table.columns) {
+          identifiers.add(column.name.toLowerCase());
+        }
+      }
+
+      const outcome = await this.queryMemoryService.revalidateForFingerprint(
+        sourceId,
+        catalog.schemaFingerprint,
+        identifiers,
+      );
+      if (outcome.retired > 0) {
+        this.logger.log(
+          `Schema change on ${sourceId}: kept ${outcome.carried} query-memory entries, retired ${outcome.retired}`,
+        );
+      }
+    }
+
     return result;
   }
 

@@ -44,6 +44,27 @@ export type AgentLlmRuntime = {
   headers?: Record<string, string>;
 };
 
+/**
+ * SQL this source has already used to answer this exact question. Reusing it
+ * skips SQL generation; the agent still re-executes so the data is fresh.
+ */
+export type AgentExactPlan = {
+  memoryId: string;
+  sql: string;
+};
+
+/** A past question on this source, with the SQL that answered it. */
+export type AgentQueryExample = {
+  question: string;
+  sql: string;
+};
+
+/** Everything retrieved for this turn, resolved by the backend. */
+export type AgentRetrievalContext = {
+  exactPlan?: AgentExactPlan;
+  examples?: AgentQueryExample[];
+};
+
 export type AgentRunRequest = {
   requestId: string;
   conversationId: string;
@@ -54,6 +75,7 @@ export type AgentRunRequest = {
   database: AgentDatabaseRuntime;
   knowledge: DatabaseKnowledgeRuntime;
   llm: AgentLlmRuntime;
+  retrieval?: AgentRetrievalContext;
 };
 
 export type AgentSyncRequest = {
@@ -266,6 +288,21 @@ export type AgentTraceEvent = {
   };
 };
 
+/**
+ * Emitted by the backend (not the agent) once the run's trace row exists.
+ *
+ * Carries the trace id to the client so a message can be rated. Without it
+ * there is no handle to send feedback against, which is why `feedback` has
+ * been NULL for every trace ever written.
+ */
+export type TracePersistedEvent = {
+  type: 'trace_persisted';
+  data: {
+    messageId: string;
+    traceId: string;
+  };
+};
+
 export type AgentStreamEvent =
   | MessageStartedEvent
   | MessageDeltaEvent
@@ -277,7 +314,8 @@ export type AgentStreamEvent =
   | MessageFailedEvent
   | AgentStepEvent
   | SuggestionsGeneratedEvent
-  | AgentTraceEvent;
+  | AgentTraceEvent
+  | TracePersistedEvent;
 
 export type CreateConversationInput = {
   databaseSourceId: string;
@@ -324,6 +362,7 @@ export type PersistedConversationMessage = {
   updatedAt: Date;
   artifacts: PersistedMessageArtifact[];
   agentRunTraces?: Array<{
+    id: string;
     steps: unknown;
   }>;
 };
@@ -390,6 +429,8 @@ export type ConversationMessageResponse = {
   suggestions: string[];
   createdAt: string;
   updatedAt: string;
+  /** Handle for rating this message; null when no trace exists. */
+  traceId?: string | null;
   steps?: Array<{
     seq: number;
     text: string;

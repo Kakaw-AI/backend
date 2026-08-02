@@ -58,6 +58,9 @@ const conversationMessageSelect = {
     orderBy: { createdAt: 'desc' },
     take: 1,
     select: {
+      // The id travels to the client so a message stays ratable after a page
+      // reload, not only during the stream that produced it.
+      id: true,
       steps: true,
     },
   },

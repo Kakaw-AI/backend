@@ -300,6 +300,9 @@ export class ConversationService {
       suggestions: message.suggestions,
       createdAt: message.createdAt.toISOString(),
       updatedAt: message.updatedAt.toISOString(),
+      // Handle for rating this message. Null for user messages and for
+      // assistant messages predating trace capture.
+      traceId: message.agentRunTraces?.[0]?.id ?? null,
       ...(persistedSteps.length > 0
         ? {
             steps: persistedSteps,

@@ -5,6 +5,7 @@ import { DatabaseKnowledgeModule } from '../database-knowledge/database-knowledg
 import { DatabaseSourcesModule } from '../database-sources/database-sources.module';
 import { LlmConnectionsModule } from '../llm-connections/llm-connections.module';
 import { PrismaModule } from '../prisma/prisma.module';
+import { RetrievalModule } from '../retrieval/retrieval.module';
 import { ArtifactService } from './artifact.service';
 import { ChatController } from './chat.controller';
 import { ChatRepository } from './chat.repository';
@@ -22,6 +23,7 @@ import { RuntimeConfigService } from './runtime-config.service';
     DatabaseKnowledgeModule,
     DatabaseSourcesModule,
     LlmConnectionsModule,
+    RetrievalModule,
   ],
   controllers: [ChatController],
   providers: [

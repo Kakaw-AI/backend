@@ -2,6 +2,11 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
 import { MessageArtifactType, MessageStatus } from '@prisma/client';
 import { normalizeApiError } from '../common/errors/error-response';
+import {
+  ExactPlanHit,
+  QueryMemoryService,
+  SimilarExample,
+} from '../retrieval/query-memory.service';
 import { ChatRepository } from './chat.repository';
 import { EphemeralStateService } from './ephemeral-state.service';
 import { RuntimeConfigService } from './runtime-config.service';
@@ -10,6 +15,7 @@ import { ConversationService } from './conversation.service';
 import { MessageStreamingService } from './message-streaming.service';
 import {
   AgentErrorInfo,
+  AgentRetrievalContext,
   AgentStreamEvent,
   CreateConversationInput,
   PersistedAgentTraceMetadata,
@@ -30,6 +36,7 @@ export class ChatService {
     private readonly messageStreamingService: MessageStreamingService,
     private readonly runtimeConfigService: RuntimeConfigService,
     private readonly ephemeralStateService: EphemeralStateService,
+    private readonly queryMemoryService: QueryMemoryService,
   ) {}
 
   async createConversation(userId: string, input: CreateConversationInput) {
@@ -78,7 +85,22 @@ export class ChatService {
       conversationId,
       trimmedContent,
     );
-    const history = await this.conversationService.findRecentHistory(conversationId, 24);
+    // All three sit before the first streamed byte and none depends on the
+    // others. The similarity lookup embeds the question (~3ms) and scans an
+    // in-process index, so it hides entirely behind the history query.
+    const [history, exactPlan, examples] = await Promise.all([
+      this.conversationService.findRecentHistory(conversationId, 24),
+      this.queryMemoryService.findExact(
+        conversation.databaseSourceId,
+        runtime.database.schemaFingerprint ?? null,
+        trimmedContent,
+      ),
+      this.queryMemoryService.findSimilar(
+        conversation.databaseSourceId,
+        runtime.database.schemaFingerprint ?? null,
+        trimmedContent,
+      ),
+    ]);
 
     yield* this.runAgentStream({
       userId,
@@ -88,6 +110,7 @@ export class ChatService {
       assistantMessageId: assistantMessage.id,
       question: trimmedContent,
       history,
+      retrieval: this.buildRetrievalContext(exactPlan, examples),
     });
   }
 
@@ -187,6 +210,7 @@ export class ChatService {
     assistantMessageId: string;
     question: string;
     history: Awaited<ReturnType<ConversationService['findRecentHistory']>>;
+    retrieval?: AgentRetrievalContext;
   }): AsyncGenerator<AgentStreamEvent> {
     const {
       userId,
@@ -247,6 +271,7 @@ export class ChatService {
         database: runtime.database,
         knowledge: runtime.knowledge,
         llm: runtime.llm,
+        retrieval: params.retrieval,
       })) {
         this.ephemeralStateService.touch(requestId);
         this.artifactService.collectFromEvent(event, artifactBuffer);
@@ -373,7 +398,7 @@ export class ChatService {
         tokenUsage,
         suggestions,
       });
-      await this.persistAgentRunTrace({
+      const completedTrace = await this.persistAgentRunTrace({
         requestId,
         status: MessageStatus.COMPLETED,
         effectiveModel: runtime.llm.model,
@@ -398,6 +423,21 @@ export class ChatService {
         llmConnectionId: conversation.llmConnectionId,
         messageId: assistantMessageId,
       });
+      this.recordQueryMemory({
+        traceId: completedTrace.id,
+        databaseSourceId: conversation.databaseSourceId,
+        schemaFingerprint: runtime.database.schemaFingerprint ?? null,
+        question: trimmedContent,
+        toolCalls: traceToolCalls,
+        cacheHit: traceCacheHit,
+      });
+      // Trailing event: the client needs this handle to rate the message. It
+      // arrives after message_completed, which is fine — the NDJSON reader
+      // consumes to end of stream.
+      yield {
+        type: 'trace_persisted',
+        data: { messageId: assistantMessageId, traceId: completedTrace.id },
+      };
       await this.artifactService.saveArtifacts(assistantMessageId, artifactBuffer);
       settled = true;
     } catch (error) {
@@ -490,6 +530,51 @@ export class ChatService {
     input: Parameters<ChatRepository['createAgentRunTrace']>[0],
   ) {
     return this.chatRepository.createAgentRunTrace(input);
+  }
+
+  /**
+   * Remembers a successful turn's SQL, off the critical path.
+   *
+   * Only the COMPLETED path records: a run that executed SQL and then failed
+   * downstream produced valid SQL, but the user did not get an answer from it,
+   * and an example the user never saw succeed is not one worth teaching from.
+   * `buildEntry` applies the rest of the filtering (executed, non-empty result).
+   */
+  /**
+   * Shapes what the backend retrieved into the agent's request body. Returns
+   * undefined when nothing was found, so the agent sees no retrieval key at
+   * all rather than an empty one.
+   */
+  private buildRetrievalContext(
+    exactPlan: ExactPlanHit | null,
+    examples: SimilarExample[],
+  ): AgentRetrievalContext | undefined {
+    if (!exactPlan && examples.length === 0) {
+      return undefined;
+    }
+
+    return {
+      ...(exactPlan ? { exactPlan } : {}),
+      ...(examples.length > 0
+        ? {
+            examples: examples.map((example) => ({
+              question: example.question,
+              sql: example.sql,
+            })),
+          }
+        : {}),
+    };
+  }
+
+  private recordQueryMemory(input: {
+    traceId: string;
+    databaseSourceId: string;
+    schemaFingerprint: string | null;
+    question: string;
+    toolCalls: Array<Record<string, unknown>>;
+    cacheHit: boolean;
+  }) {
+    void this.queryMemoryService.recordFromTrace(input);
   }
 
   private resolvePublicErrorMessage(

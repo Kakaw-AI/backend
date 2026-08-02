@@ -141,9 +141,55 @@ model DatabaseSource {
   tables             DatabaseSourceTable[]
   knowledgeDocuments DatabaseSourceKnowledgeDocument[]
   agentRunTraces     AgentRunTrace[]
+  queryMemoryEntries QueryMemoryEntry[]
 
   @@index([userId, sqliteFingerprint])
   @@map("database_sources")
+}
+
+enum QueryMemoryStatus {
+  ACTIVE
+  QUARANTINED
+  RETIRED
+}
+
+/// A question this data source has already answered, paired with the SQL that
+/// actually executed. Built from agent_run_traces, which recorded both all
+/// along and was never read back.
+///
+/// Scoped by databaseSourceId, and DatabaseSource carries a userId, so tenant
+/// isolation is structural rather than something the query has to remember.
+model QueryMemoryEntry {
+  id                 String            @id @default(cuid())
+  schemaFingerprint  String
+  question           String
+  normalizedQuestion String
+  /// sha256(databaseSourceId \0 normalizedQuestion) — one entry per question,
+  /// so re-asking and getting it right overwrites a bad entry.
+  questionHash       String
+  sql                String
+  tablesReferenced   String[]
+  rowCount           Int               @default(0)
+  /// 384-dim float32, L2-normalized. Null until the semantic tier ships.
+  embedding          Bytes?
+  embeddingModel     String?
+  status             QueryMemoryStatus @default(ACTIVE)
+  positiveCount      Int               @default(0)
+  negativeCount      Int               @default(0)
+  reuseCount         Int               @default(0)
+  lastUsedAt         DateTime?
+  /// Lets explicit negative feedback on a message retire the entry it created.
+  sourceTraceId      String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  databaseSourceId String
+  databaseSource   DatabaseSource @relation(fields: [databaseSourceId], references: [id], onDelete: Cascade)
+
+  @@unique([databaseSourceId, questionHash])
+  @@index([databaseSourceId, status, schemaFingerprint])
+  @@index([sourceTraceId])
+  @@map("query_memory_entries")
 }
 
 model LlmConnection {
@@ -359,5 +405,8 @@ model AgentRunTrace {
   @@index([conversationId, createdAt])
   // Every conversation load does a top-1 lookup per message on this relation.
   @@index([messageId, createdAt])
+  // Query-memory backfill and per-source analytics scan by source alone, which
+  // the userId-leading index above cannot serve.
+  @@index([databaseSourceId, createdAt])
   @@map("agent_run_traces")
 }
