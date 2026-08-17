@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { QueryMemoryService } from '../retrieval/query-memory.service';
 import { DatabaseKnowledgeRepository } from './database-knowledge.repository';
 import { DatabaseCatalogInput, DatabaseKnowledgeRuntime } from './database-knowledge.types';
 
@@ -18,6 +19,7 @@ type CacheEntry = {
 
 @Injectable()
 export class DatabaseKnowledgeService {
+  private readonly logger = new Logger(DatabaseKnowledgeService.name);
   private readonly runtimeCache = new Map<string, CacheEntry>();
 
   constructor(
