@@ -16,6 +16,10 @@ import { SupportedLlmProvider } from '../llm-connections/llm-connections.types';
 export type AgentHistoryMessage = {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  rows?: Array<Record<string, unknown>>;
+  columns?: string[];
+  /** The SQL behind an assistant turn. */
+  sql?: string;
 };
 
 export type AgentDatabaseRuntime =
@@ -29,11 +33,6 @@ export type AgentDatabaseRuntime =
     sqliteDownloadUrl?: string;
     sqliteOriginalFilename?: string;
   };
-
-type AgentDatabaseContext = {
-  runtime: AgentDatabaseRuntime;
-  knowledge: DatabaseKnowledgeRuntime;
-};
 
 export type AgentLlmRuntime = {
   connectionId: string;
@@ -151,7 +150,8 @@ export type TraceAnalyticsOutcome =
   | 'no_rows'
   | 'narrowed'
   | 'chart_rendered'
-  | 'completed_text';
+  | 'completed_text'
+  | 'clarification';
 
 export type PersistedAgentTraceMetadata = {
   chartSpec?: Record<string, unknown> | null;
@@ -285,6 +285,8 @@ export type AgentTraceEvent = {
     visualizationOutcome?: VisualizationOutcome | null;
     analyticsOutcome?: TraceAnalyticsOutcome;
     rowCount?: number;
+    /** The question the agent answered; differs from the user's text for a follow-up. */
+    standaloneQuestion?: string;
   };
 };
 

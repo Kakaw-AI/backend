@@ -352,11 +352,13 @@ export class ChatRepository {
       select: {
         role: true,
         content: true,
+        // The result table and the SQL behind it. The agent replays the SQL so
+        // a follow-up ("now only express orders") builds on the actual query
+        // instead of reconstructing it from the prose of the answer.
         artifacts: {
-          where: { type: MessageArtifactType.TABLE },
-          select: { payload: true },
+          where: { type: { in: [MessageArtifactType.TABLE, MessageArtifactType.SQL] } },
+          select: { type: true, payload: true },
           orderBy: { createdAt: 'desc' as const },
-          take: 1,
         },
       },
     });

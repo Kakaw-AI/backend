@@ -15,6 +15,7 @@ import { ConversationService } from './conversation.service';
 import { MessageStreamingService } from './message-streaming.service';
 import {
   AgentErrorInfo,
+  AgentHistoryMessage,
   AgentRetrievalContext,
   AgentStreamEvent,
   CreateConversationInput,
@@ -26,6 +27,26 @@ import {
   buildRuntimeUnavailableException,
   toRuntimeUnavailableException,
 } from './chat.types';
+
+type StoredHistoryMessage = Awaited<ReturnType<ChatRepository['findRecentHistory']>>[number];
+
+/** A stored message in the shape the agent replays: text, result table and SQL. */
+export function toAgentHistoryMessage(message: StoredHistoryMessage): AgentHistoryMessage {
+  const payloadOf = (type: MessageArtifactType) =>
+    message.artifacts?.find((artifact) => artifact.type === type)?.payload as
+      | Record<string, unknown>
+      | undefined;
+  const table = payloadOf(MessageArtifactType.TABLE);
+  const sql = payloadOf(MessageArtifactType.SQL)?.['sql'];
+
+  return {
+    role: message.role.toLowerCase() as AgentHistoryMessage['role'],
+    content: message.content,
+    rows: table?.['rows'] as Array<Record<string, unknown>> | undefined,
+    columns: table?.['columns'] as string[] | undefined,
+    ...(typeof sql === 'string' && sql.trim() ? { sql } : {}),
+  };
+}
 
 @Injectable()
 export class ChatService {
@@ -240,6 +261,7 @@ export class ChatService {
     let traceRowCount: number | null = null;
     let traceCacheKey: string | null = null;
     let traceCacheHit = false;
+    let traceStandaloneQuestion: string | null = null;
     // Tracks whether the message reached a persisted terminal state. If the
     // client disconnects mid-stream (lost connection / tab switch), the
     // generator is returned early and only `finally` runs — we use this to mark
@@ -260,14 +282,7 @@ export class ChatService {
         userId,
         messageId: assistantMessageId,
         message: trimmedContent,
-        history: history
-          .reverse()
-          .map((message) => ({
-            role: message.role.toLowerCase() as 'user' | 'assistant' | 'system',
-            content: message.content,
-            rows: (message.artifacts?.[0]?.payload as Record<string, unknown> | undefined)?.['rows'] as Array<Record<string, unknown>> | undefined,
-            columns: (message.artifacts?.[0]?.payload as Record<string, unknown> | undefined)?.['columns'] as string[] | undefined,
-          })),
+        history: history.reverse().map(toAgentHistoryMessage),
         database: runtime.database,
         knowledge: runtime.knowledge,
         llm: runtime.llm,
@@ -343,6 +358,11 @@ export class ChatService {
             traceCacheKey =
               typeof event.data.cacheKey === 'string' ? event.data.cacheKey : null;
             traceCacheHit = event.data.cacheHit === true;
+            traceStandaloneQuestion =
+              typeof event.data.standaloneQuestion === 'string' &&
+              event.data.standaloneQuestion.trim()
+                ? event.data.standaloneQuestion.trim()
+                : null;
             break;
           default:
             yield event;
@@ -427,7 +447,10 @@ export class ChatService {
         traceId: completedTrace.id,
         databaseSourceId: conversation.databaseSourceId,
         schemaFingerprint: runtime.database.schemaFingerprint ?? null,
-        question: trimmedContent,
+        // The question the agent actually answered. For a follow-up the raw
+        // text ("what about 2025?") means nothing on its own, and storing it
+        // let one conversation's SQL be reused in another.
+        question: traceStandaloneQuestion ?? trimmedContent,
         toolCalls: traceToolCalls,
         cacheHit: traceCacheHit,
       });
