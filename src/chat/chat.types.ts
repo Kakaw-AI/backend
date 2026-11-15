@@ -41,6 +41,7 @@ export type AgentLlmRuntime = {
   apiKey?: string;
   baseUrl?: string;
   headers?: Record<string, string>;
+  disableThinking?: boolean;
 };
 
 /**
@@ -333,6 +334,7 @@ export type CreateConversationBody = {
 
 export type SendConversationMessageBody = {
   content?: unknown;
+  thinking?: unknown;
 };
 
 export type UpdateConversationRuntimeInput = {

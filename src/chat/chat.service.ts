@@ -93,6 +93,7 @@ export class ChatService {
     request: Request,
     conversationId: string,
     content: string,
+    thinking = true,
   ): AsyncGenerator<AgentStreamEvent> {
     const trimmedContent = content.trim();
     if (!trimmedContent) {
@@ -132,6 +133,7 @@ export class ChatService {
       question: trimmedContent,
       history,
       retrieval: this.buildRetrievalContext(exactPlan, examples),
+      disableThinking: !thinking,
     });
   }
 
@@ -232,6 +234,7 @@ export class ChatService {
     question: string;
     history: Awaited<ReturnType<ConversationService['findRecentHistory']>>;
     retrieval?: AgentRetrievalContext;
+    disableThinking?: boolean;
   }): AsyncGenerator<AgentStreamEvent> {
     const {
       userId,
@@ -285,7 +288,9 @@ export class ChatService {
         history: history.reverse().map(toAgentHistoryMessage),
         database: runtime.database,
         knowledge: runtime.knowledge,
-        llm: runtime.llm,
+        llm: params.disableThinking
+          ? { ...runtime.llm, disableThinking: true }
+          : runtime.llm,
         retrieval: params.retrieval,
       })) {
         this.ephemeralStateService.touch(requestId);

@@ -72,11 +72,12 @@ export class AgentGatewayService {
         'x-kakaw-signature': this.sign(timestamp, body),
       },
       body,
-      signal: AbortSignal.timeout(300_000),
+      // A run makes several LLM calls and a local model may take 10 minutes on each.
+      signal: AbortSignal.timeout(1_800_000),
     }).catch((error) => {
       const message =
         error instanceof Error && error.name === 'TimeoutError'
-          ? 'Agent runtime timed out (stream exceeded 5 minutes).'
+          ? 'Agent runtime timed out (stream exceeded 30 minutes).'
           : `Unable to reach the agent runtime service. ${error instanceof Error ? error.message : ''}`.trim();
       throw new ServiceUnavailableException({
         error: {

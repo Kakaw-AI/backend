@@ -96,6 +96,7 @@ export class ChatController {
       request,
       this.toConversationId(id),
       content,
+      body.thinking !== false,
     );
 
     await this.pipeStream(stream, response);
