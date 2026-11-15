@@ -151,13 +151,13 @@ export class DatabaseSourcesRepository {
         lastError: null,
         syncRequestedAt: new Date(),
       },
+      // Returned to the browser by the create and refresh endpoints, so no
+      // connection string and no storage key.
       select: {
         id: true,
         provider: true,
         name: true,
         status: true,
-        connectionString: true,
-        sqliteObjectKey: true,
         sqliteOriginalFilename: true,
         lastError: true,
         lastTestedAt: true,
@@ -223,6 +223,41 @@ export class DatabaseSourcesRepository {
         createdAt: true,
         updatedAt: true,
       },
+    });
+  }
+
+  deleteForUser(id: string, userId: string) {
+    // Conversations, the schema catalog, traces and query memory cascade via
+    // the onDelete: Cascade relations in the Prisma schema.
+    return this.prisma.databaseSource.deleteMany({ where: { id, userId } });
+  }
+
+  async findSqliteObjectKeysByUser(userId: string): Promise<string[]> {
+    const sources = await this.prisma.databaseSource.findMany({
+      where: { userId, sqliteObjectKey: { not: null } },
+      select: { sqliteObjectKey: true },
+    });
+    return sources.flatMap((source) =>
+      source.sqliteObjectKey ? [source.sqliteObjectKey] : [],
+    );
+  }
+
+  /** Rows written before connection strings were encrypted at rest. */
+  findUnencryptedConnectionStrings(encryptedPrefix: string) {
+    return this.prisma.databaseSource.findMany({
+      where: {
+        connectionString: { not: null },
+        NOT: { connectionString: { startsWith: encryptedPrefix } },
+      },
+      select: { id: true, connectionString: true },
+    });
+  }
+
+  setConnectionString(id: string, connectionString: string) {
+    return this.prisma.databaseSource.update({
+      where: { id },
+      data: { connectionString },
+      select: { id: true },
     });
   }
 

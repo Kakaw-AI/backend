@@ -95,7 +95,15 @@ function unwrapErrorPayload(value: unknown): unknown {
   }
 
   const record = value as Record<string, unknown>;
-  if ('error' in record && record.error) {
+  // Upstream services nest the real error under `error`. Nest's own exception
+  // body also has an `error` key, but there it is only the status label
+  // ("Bad Request") sitting next to the actual `message` — unwrapping that
+  // replaced every validation message with the label.
+  if (
+    'error' in record &&
+    record.error &&
+    (typeof record.error === 'object' || !('message' in record))
+  ) {
     return unwrapErrorPayload(record.error);
   }
 

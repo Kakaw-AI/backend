@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { AuthUser } from '../auth/better-auth.config';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { RateLimit } from '../common/guards/rate-limit.guard';
 import {
   CreateLlmConnectionInput,
   SUPPORTED_LLM_PROVIDERS,
@@ -29,6 +30,8 @@ export class LlmConnectionsController {
     private readonly llmConnectionsService: LlmConnectionsService,
   ) {}
 
+  // Makes an outbound validation call to the provider.
+  @RateLimit(10)
   @Post()
   createLlmConnection(
     @CurrentUser() user: AuthUser,

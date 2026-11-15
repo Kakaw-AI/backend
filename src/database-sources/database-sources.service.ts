@@ -1,9 +1,15 @@
 import { extname } from 'node:path';
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { DatabaseSourceStatus } from '@prisma/client';
 import { DatabaseKnowledgeService } from '../database-knowledge/database-knowledge.service';
 import { AgentGatewayService } from '../chat/agent-gateway.service';
 import { normalizeApiError } from '../common/errors/error-response';
+import { SecretsService } from '../llm-connections/secrets.service';
 import { R2Service } from '../storage/r2.service';
 import { DatabaseSourcesRepository } from './database-sources.repository';
 import {
@@ -25,8 +31,12 @@ type CreateDatabaseSourceInput = {
   sqlite?: CreateSqliteSourceInput;
 };
 
+// Marks a stored connection string as ciphertext, so rows from before
+// encryption (plain postgres:// URLs) are still readable until re-encrypted.
+const ENCRYPTED_PREFIX = 'enc:v1:';
+
 @Injectable()
-export class DatabaseSourcesService {
+export class DatabaseSourcesService implements OnModuleInit {
   private readonly logger = new Logger(DatabaseSourcesService.name);
 
   constructor(
@@ -34,7 +44,46 @@ export class DatabaseSourcesService {
     private readonly agentGatewayService: AgentGatewayService,
     private readonly databaseKnowledgeService: DatabaseKnowledgeService,
     private readonly r2Service: R2Service,
+    private readonly secretsService: SecretsService,
   ) {}
+
+  /**
+   * Encrypts connection strings saved before encryption at rest existed.
+   * Idempotent, and a no-op once every row carries the prefix.
+   */
+  async onModuleInit() {
+    try {
+      const rows =
+        await this.databaseSourcesRepository.findUnencryptedConnectionStrings(
+          ENCRYPTED_PREFIX,
+        );
+      for (const row of rows) {
+        await this.databaseSourcesRepository.setConnectionString(
+          row.id,
+          this.sealConnectionString(row.connectionString!),
+        );
+      }
+      if (rows.length > 0) {
+        this.logger.log(`Encrypted ${rows.length} stored connection string(s).`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `Could not encrypt stored connection strings: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  private sealConnectionString(value: string): string {
+    return ENCRYPTED_PREFIX + this.secretsService.encrypt(value);
+  }
+
+  private openConnectionString(value: string): string {
+    return value.startsWith(ENCRYPTED_PREFIX)
+      ? this.secretsService.decrypt(value.slice(ENCRYPTED_PREFIX.length))
+      : value;
+  }
 
   /**
    * Issues a short-lived presigned PUT URL so the browser uploads the SQLite
@@ -175,6 +224,36 @@ export class DatabaseSourcesService {
     return syncingSource;
   }
 
+  /**
+   * Removes a source and everything derived from it. The uploaded file goes
+   * first: if that fails the row is still there and the delete can be retried,
+   * whereas the other order could strand a private file with nothing pointing
+   * at it.
+   */
+  async deleteForUser(userId: string, id: string) {
+    const source = await this.databaseSourcesRepository.findRuntimeByUserAndId(
+      userId,
+      id,
+    );
+
+    if (!source) {
+      throw new BadRequestException('Selected database source could not be found.');
+    }
+
+    if (source.sqliteObjectKey) {
+      await this.r2Service.deleteObject(source.sqliteObjectKey);
+    }
+    await this.databaseSourcesRepository.deleteForUser(id, userId);
+    return { id };
+  }
+
+  /** Deletes every uploaded SQLite file a user owns (account deletion). */
+  async deleteUploadsForUser(userId: string) {
+    const keys =
+      await this.databaseSourcesRepository.findSqliteObjectKeysByUser(userId);
+    await Promise.all(keys.map((key) => this.r2Service.deleteObject(key)));
+  }
+
   private async createPostgresqlSource(
     userId: string,
     connectionString?: string,
@@ -186,11 +265,25 @@ export class DatabaseSourcesService {
       );
     }
 
+    // Format only. Which hosts may be dialled is enforced by the agent on the
+    // socket it opens, where a query-string host override cannot get past it.
+    let protocol = '';
+    try {
+      protocol = new URL(connectionString).protocol;
+    } catch {
+      // handled below
+    }
+    if (protocol !== 'postgres:' && protocol !== 'postgresql:') {
+      throw new BadRequestException(
+        'The connection string must be a URL starting with postgresql://',
+      );
+    }
+
     const pendingSource = await this.databaseSourcesRepository.createPending({
       userId,
       provider: 'postgresql',
       name,
-      connectionString,
+      connectionString: this.sealConnectionString(connectionString),
     });
 
     const syncingSource = await this.databaseSourcesRepository.markSyncing(
@@ -210,6 +303,14 @@ export class DatabaseSourcesService {
       throw new BadRequestException('A SQLite database upload is required.');
     }
 
+    // The key comes back from the browser. Only accept one we issued to this
+    // user (see R2Service.buildSqliteKey), never another user's upload.
+    if (!objectKey.startsWith(`sqlite/${userId}/`)) {
+      throw new BadRequestException(
+        'The uploaded SQLite file could not be found in storage. Please re-upload.',
+      );
+    }
+
     // Confirm the browser's direct upload landed in R2 and use the object's
     // ETag as a content fingerprint (replaces hashing a local file).
     let head: { etag: string; size: number };
@@ -218,6 +319,15 @@ export class DatabaseSourcesService {
     } catch {
       throw new BadRequestException(
         'The uploaded SQLite file could not be found in storage. Please re-upload.',
+      );
+    }
+
+    // The presign step only saw the size the browser claimed. This is the size
+    // of what was actually stored.
+    if (head.size > SQLITE_UPLOAD_MAX_BYTES) {
+      await this.r2Service.deleteObject(objectKey).catch(() => undefined);
+      throw new BadRequestException(
+        `SQLite uploads are limited to ${SQLITE_UPLOAD_MAX_BYTES / (1024 * 1024)} MB.`,
       );
     }
 
@@ -339,8 +449,8 @@ export class DatabaseSourcesService {
       ),
       schemaFingerprint: source.schemaFingerprint ?? undefined,
       connectionString:
-        source.provider === 'postgresql'
-          ? source.connectionString ?? undefined
+        source.provider === 'postgresql' && source.connectionString
+          ? this.openConnectionString(source.connectionString)
           : undefined,
       sqliteObjectKey,
       sqliteDownloadUrl,

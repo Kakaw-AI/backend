@@ -27,7 +27,7 @@ export class RuntimeConfigService {
     sourceId: string,
     llmConnectionId: string,
     llmModelOverride: string | null,
-    request: Request,
+    _request: Request,
   ): Promise<{
     database: AgentDatabaseRuntime;
     knowledge: DatabaseKnowledgeRuntime;

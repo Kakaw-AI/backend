@@ -54,4 +54,9 @@ COPY --from=pruned /app/models ./models
 COPY package.json ./
 USER node
 EXPOSE 3001
+# Lets the orchestrator hold traffic until the API answers (boot applies
+# migrations first) and replace a hung container. The image has no curl; node's
+# own fetch does the job.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3001) + '/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
 CMD ["node", "dist/main"]

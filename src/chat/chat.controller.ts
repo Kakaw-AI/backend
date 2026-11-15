@@ -14,6 +14,7 @@ import {
 import type { Request, Response } from 'express';
 import { AuthUser } from '../auth/better-auth.config';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { RateLimit } from '../common/guards/rate-limit.guard';
 import { ChatService } from './chat.service';
 import {
   CreateConversationBody,
@@ -73,6 +74,9 @@ export class ChatController {
     );
   }
 
+  // Each call is a full agent run: several LLM calls and queries against the
+  // user's database.
+  @RateLimit(20)
   @Post('conversations/:id/messages/stream')
   async streamConversationMessage(
     @CurrentUser() user: AuthUser,
@@ -97,6 +101,7 @@ export class ChatController {
     await this.pipeStream(stream, response);
   }
 
+  @RateLimit(20)
   @Post('conversations/:id/messages/:messageId/retry')
   async retryConversationMessage(
     @CurrentUser() user: AuthUser,

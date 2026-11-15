@@ -20,7 +20,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx prisma generate
+      - run: npm run lint
       - run: npm run build
+      # The image runs `node dist/main`. A stray .ts file outside src/ moves the
+      # entry point to dist/src/main.js and the container cannot start.
+      - run: test -f dist/main.js
+      - run: npm test
 
   docker:
     # Build and publish only on pushes to master / version tags, not on PRs.

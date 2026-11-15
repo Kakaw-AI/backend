@@ -1,8 +1,12 @@
 import 'dotenv/config';
 // Telemetry must initialize before any instrumented module is imported so the
 // OpenTelemetry auto-instrumentations can patch http/express/pg/nestjs.
-import './telemetry';
+import { shutdownTelemetry } from './telemetry';
 import 'reflect-metadata';
+// `import x = require()` because compression is a CommonJS `export =` module:
+// a dynamic import() of it has no `.default` under this tsconfig, so the
+// destructured default was undefined and the server died on boot.
+import compression = require('compression');
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { ensureDatabaseReady } from './config/database.bootstrap';
 import { loadInfisicalSecrets } from './config/infisical.bootstrap';
@@ -24,7 +28,6 @@ async function bootstrap() {
     { AppModule },
     { auth },
     { Logger: PinoLogger },
-    { default: compression },
   ] = await Promise.all([
     import('@nestjs/common'),
     import('@nestjs/core'),
@@ -33,7 +36,6 @@ async function bootstrap() {
     import('./app.module'),
     import('./auth/better-auth.config'),
     import('nestjs-pino'),
-    import('compression'),
   ]);
 
   // bodyParser: false — Better Auth must read the raw body stream itself.
@@ -93,6 +95,22 @@ async function bootstrap() {
   app.use(urlencoded({ extended: true, verify: captureRawBody }));
 
   app.setGlobalPrefix('api');
+
+  // Stop accepting connections, let in-flight requests finish, close Prisma
+  // (app.close runs the module destroy hooks), then flush telemetry. Docker's
+  // default stop grace period is 10s, so the wait is capped inside it; raise
+  // both together if long chat streams should survive a deploy.
+  const shutdown = () => {
+    const deadline = new Promise<void>((resolve) => {
+      setTimeout(resolve, 8_000).unref();
+    });
+    void Promise.race([app.close(), deadline])
+      .catch(() => undefined)
+      .then(shutdownTelemetry)
+      .finally(() => process.exit(0));
+  };
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);

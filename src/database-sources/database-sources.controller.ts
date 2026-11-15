@@ -2,10 +2,12 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Param,
   Post,
 } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { RateLimit } from '../common/guards/rate-limit.guard';
 import { AuthUser } from '../auth/better-auth.config';
 import { DatabaseSourcesService } from './database-sources.service';
 import {
@@ -33,6 +35,7 @@ export class DatabaseSourcesController {
     private readonly databaseSourcesService: DatabaseSourcesService,
   ) {}
 
+  @RateLimit(20)
   @Post('uploads/presign')
   presignUpload(
     @CurrentUser() user: AuthUser,
@@ -54,6 +57,8 @@ export class DatabaseSourcesController {
     });
   }
 
+  // Each call starts a sync: the agent connects out and introspects a database.
+  @RateLimit(10)
   @Post()
   async createDatabaseSource(
     @CurrentUser() user: AuthUser,
@@ -103,6 +108,7 @@ export class DatabaseSourcesController {
     });
   }
 
+  @RateLimit(10)
   @Post(':id/refresh')
   refreshDatabaseSource(
     @CurrentUser() user: AuthUser,
@@ -114,5 +120,18 @@ export class DatabaseSourcesController {
     }
 
     return this.databaseSourcesService.refreshForUser(user.id, sourceId);
+  }
+
+  @Delete(':id')
+  deleteDatabaseSource(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    const sourceId = id.trim();
+    if (!sourceId) {
+      throw new BadRequestException('id is required');
+    }
+
+    return this.databaseSourcesService.deleteForUser(user.id, sourceId);
   }
 }

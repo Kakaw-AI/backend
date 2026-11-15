@@ -14,6 +14,7 @@ import { ConversationService } from './conversation.service';
 import { EphemeralStateService } from './ephemeral-state.service';
 import { MessageStreamingService } from './message-streaming.service';
 import { RuntimeConfigService } from './runtime-config.service';
+import { StaleStateSweeper } from './stale-state.sweeper';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { RuntimeConfigService } from './runtime-config.service';
     MessageStreamingService,
     RuntimeConfigService,
     EphemeralStateService,
+    StaleStateSweeper,
   ],
 })
 export class ChatModule {}

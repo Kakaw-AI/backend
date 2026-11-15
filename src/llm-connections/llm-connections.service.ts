@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { LlmConnectionStatus, Prisma } from '@prisma/client';
+import { assertPublicUrl } from '../common/net/public-host';
 import { PrismaService } from '../prisma/prisma.service';
 import { LlmConnectionsRepository } from './llm-connections.repository';
 import { SecretsService } from './secrets.service';
@@ -91,6 +92,12 @@ export class LlmConnectionsService {
 
     if (!takesOptionalApiKey && !apiKey) {
       throw new BadRequestException('apiKey is required for this provider.');
+    }
+
+    // Only these providers take a user-supplied endpoint. We call it below and
+    // the agent calls it on every run, so it must not point into our network.
+    if (effectiveRuntimeBaseUrl) {
+      await assertPublicUrl(effectiveRuntimeBaseUrl);
     }
 
     const apiKeyLastFour = apiKey ? apiKey.slice(-4) : undefined;
@@ -343,6 +350,8 @@ export class LlmConnectionsService {
         method: 'GET',
         headers: request.headers,
         signal: controller.signal,
+        // A redirect could lead somewhere the base URL check never saw.
+        redirect: 'error',
       });
     } finally {
       clearTimeout(timeoutId);
@@ -356,7 +365,8 @@ export class LlmConnectionsService {
       return `Provider rejected the credentials with status ${response.status}.`;
     }
 
-    return message;
+    // Shown to the user. Enough for a provider's error, not a page of output.
+    return message.length > 300 ? `${message.slice(0, 300)}...` : message;
   }
 
   private toConnectionErrorMessage(error: unknown, fallback: string) {

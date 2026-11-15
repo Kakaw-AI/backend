@@ -27,8 +27,18 @@ import {
 
 const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim();
 
+let sdk: NodeSDK | undefined;
+
+/**
+ * Flushes buffered spans, metrics and logs. Called from main.ts once the HTTP
+ * server has drained — exiting from here would cut in-flight requests short.
+ */
+export async function shutdownTelemetry(): Promise<void> {
+  await sdk?.shutdown().catch(() => undefined);
+}
+
 if (endpoint) {
-  const sdk = new NodeSDK({
+  sdk = new NodeSDK({
     resource: resourceFromAttributes({
       [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME ?? 'kakaw-backend',
       [ATTR_SERVICE_VERSION]: process.env.npm_package_version ?? '0.1.0',
@@ -56,15 +66,5 @@ if (endpoint) {
   // Process/runtime metrics (CPU, memory, event-loop, GC).
   new HostMetrics({ meterProvider: metrics.getMeterProvider() }).start();
 
-  const shutdown = () => {
-    void sdk
-      .shutdown()
-      .catch(() => undefined)
-      .finally(() => process.exit(0));
-  };
-  process.once('SIGTERM', shutdown);
-  process.once('SIGINT', shutdown);
-
-  // eslint-disable-next-line no-console
   console.log(`[telemetry] OpenTelemetry started → ${endpoint}`);
 }

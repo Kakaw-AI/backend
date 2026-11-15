@@ -11,6 +11,8 @@ import { LlmConnectionsModule } from './llm-connections/llm-connections.module';
 import { UsersModule } from './users/users.module';
 import { ChatModule } from './chat/chat.module';
 import { AuthGuard } from './common/guards/auth.guard';
+import { RateLimitGuard } from './common/guards/rate-limit.guard';
+import { HealthController } from './health.controller';
 import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -47,7 +49,8 @@ const isProd = process.env.NODE_ENV === 'production';
           // The middleware polls these constantly; don't drown the logs.
           ignore: (req: IncomingMessage) =>
             req.url === '/api/auth/get-session' ||
-            req.url === '/api/me/onboarding-state',
+            req.url === '/api/me/onboarding-state' ||
+            req.url === '/api/health',
         },
         // Human-readable colorized logs locally; raw JSON in prod.
         ...(isProd
@@ -62,9 +65,13 @@ const isProd = process.env.NODE_ENV === 'production';
     UsersModule,
     ChatModule,
   ],
+  controllers: [HealthController],
   providers: [
     // Global auth guard — use @Public() to opt out on specific routes
     { provide: APP_GUARD, useClass: AuthGuard },
+    // Per-user request budget. Registered after AuthGuard: guards run in
+    // order, and this one keys on the session AuthGuard attaches.
+    { provide: APP_GUARD, useClass: RateLimitGuard },
     // Global exception filter
     { provide: APP_FILTER, useClass: GlobalExceptionFilter },
   ],

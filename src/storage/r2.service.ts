@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -119,6 +120,12 @@ export class R2Service {
       new GetObjectCommand({ Bucket: bucket, Key: key }),
       { expiresIn: ttlSeconds },
     );
+  }
+
+  /** Idempotent: deleting a key that is already gone succeeds. */
+  async deleteObject(key: string): Promise<void> {
+    const { client, bucket } = this.getClient();
+    await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
   }
 
   /** Returns the object's ETag (used as a content fingerprint) and size. */
