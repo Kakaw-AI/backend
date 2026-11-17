@@ -8,9 +8,9 @@ import { DatabaseSourceStatus, MessageStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 // Both limits sit well past the longest a healthy run can take: a chat stream
-// is cut at 5 minutes (agent-gateway) and a sync at 60 seconds plus the catalog
+// is cut at 30 minutes (agent-gateway) and a sync at 60 seconds plus the catalog
 // write.
-const STREAM_STALE_MS = 10 * 60_000;
+const STREAM_STALE_MS = 35 * 60_000;
 const SYNC_STALE_MS = 5 * 60_000;
 
 /**
