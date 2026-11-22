@@ -308,6 +308,12 @@ export type TracePersistedEvent = {
   };
 };
 
+/** Pages the answer cites; stored as a TEXT artifact with kind 'web_sources'. */
+export type WebSourcesEvent = {
+  type: 'web_sources';
+  data: { sources: Array<{ title: string; url: string }> };
+};
+
 export type TitleGeneratedEvent = {
   type: 'title_generated';
   data: { title: string };
@@ -326,7 +332,8 @@ export type AgentStreamEvent =
   | SuggestionsGeneratedEvent
   | AgentTraceEvent
   | TracePersistedEvent
-  | TitleGeneratedEvent;
+  | TitleGeneratedEvent
+  | WebSourcesEvent;
 
 export type CreateConversationInput = {
   databaseSourceId: string;

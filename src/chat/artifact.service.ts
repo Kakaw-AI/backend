@@ -23,6 +23,12 @@ export class ArtifactService {
       case 'chart_generated':
         buffer.push({ type: MessageArtifactType.CHART, payload: event.data });
         break;
+      case 'web_sources':
+        buffer.push({
+          type: MessageArtifactType.TEXT,
+          payload: { kind: 'web_sources', sources: event.data.sources },
+        });
+        break;
       case 'artifact':
         buffer.push({ type: event.data.artifactType, payload: event.data.payload });
         break;
