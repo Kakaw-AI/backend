@@ -121,6 +121,19 @@ export class ChatController {
     await this.pipeStream(stream, response);
   }
 
+  @Post('conversations/:id/messages/:messageId/stop')
+  stopConversationMessage(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('messageId') messageId: string,
+  ) {
+    return this.chatService.stopMessage(
+      user.id,
+      this.toConversationId(id),
+      this.toMessageId(messageId),
+    );
+  }
+
   private async pipeStream(
     stream: AsyncGenerator<unknown>,
     response: Response,

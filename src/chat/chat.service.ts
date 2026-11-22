@@ -28,6 +28,8 @@ import {
   toRuntimeUnavailableException,
 } from './chat.types';
 
+const STOPPED_MESSAGE = 'You stopped this response.';
+
 type StoredHistoryMessage = Awaited<ReturnType<ChatRepository['findRecentHistory']>>[number];
 
 /** A stored message in the shape the agent replays: text, result table and SQL. */
@@ -135,6 +137,24 @@ export class ChatService {
       retrieval: this.buildRetrievalContext(exactPlan, examples),
       disableThinking: !thinking,
     });
+  }
+
+  /**
+   * Stops the response being written for a message. A stream running in this
+   * process is aborted and records itself as stopped. One left STREAMING by a
+   * process that died is marked stopped here, so the chat is never stuck.
+   */
+  async stopMessage(userId: string, conversationId: string, messageId: string) {
+    await this.loadConversationForChat(userId, conversationId);
+    if (this.ephemeralStateService.stop(messageId)) {
+      return { stopped: true };
+    }
+    const stopped = await this.conversationService.stopOrphanedMessage(
+      conversationId,
+      messageId,
+      STOPPED_MESSAGE,
+    );
+    return { stopped };
   }
 
   async *retryMessage(
@@ -271,7 +291,12 @@ export class ChatService {
     // the message FAILED instead of leaving it stuck STREAMING forever.
     let settled = false;
 
-    this.ephemeralStateService.start(requestId, conversationId, userId, assistantMessageId);
+    const stopSignal = this.ephemeralStateService.start(
+      requestId,
+      conversationId,
+      userId,
+      assistantMessageId,
+    );
 
     yield {
       type: 'message_started',
@@ -293,7 +318,7 @@ export class ChatService {
           : runtime.llm,
         retrieval: params.retrieval,
         generateTitle: this.conversationService.hasPlaceholderTitle(conversation.title),
-      })) {
+      }, stopSignal)) {
         this.ephemeralStateService.touch(requestId);
         this.artifactService.collectFromEvent(event, artifactBuffer);
 
@@ -482,6 +507,32 @@ export class ChatService {
       await this.artifactService.saveArtifacts(assistantMessageId, artifactBuffer);
       settled = true;
     } catch (error) {
+      // The user pressed Stop. Keep what was written so far and offer a retry;
+      // it is not an agent failure, so no failed trace is recorded.
+      if (stopSignal.aborted) {
+        await this.conversationService.failMessage(
+          assistantMessageId,
+          STOPPED_MESSAGE,
+          assistantContent,
+        );
+        await this.artifactService.saveArtifacts(assistantMessageId, artifactBuffer);
+        settled = true;
+        yield {
+          type: 'message_failed',
+          data: {
+            messageId: assistantMessageId,
+            error: STOPPED_MESSAGE,
+            errorInfo: {
+              message: STOPPED_MESSAGE,
+              code: 'STOPPED',
+              statusCode: 499,
+              retryable: true,
+            },
+          },
+        };
+        return;
+      }
+
       const normalizedError = normalizeApiError(error, 'Agent execution failed.');
       const message = normalizedError.message;
       const publicMessage = this.resolvePublicErrorMessage(message, normalizedError);

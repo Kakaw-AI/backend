@@ -250,6 +250,15 @@ export class ChatRepository {
     });
   }
 
+  /** Fails a message only if it is still STREAMING; keeps its content. */
+  async stopStreamingMessage(messageId: string, error: string) {
+    const { count } = await this.prisma.message.updateMany({
+      where: { id: messageId, status: MessageStatus.STREAMING },
+      data: { status: MessageStatus.FAILED, error },
+    });
+    return count > 0;
+  }
+
   failMessage(messageId: string, error: string, content: string) {
     return this.prisma.message.update({
       where: { id: messageId },

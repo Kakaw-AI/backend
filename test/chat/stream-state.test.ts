@@ -32,3 +32,18 @@ describe('StaleStateSweeper on shutdown', () => {
     expect(updateMany).not.toHaveBeenCalled();
   });
 });
+
+describe('EphemeralStateService.stop', () => {
+  it('aborts the stream producing the message', () => {
+    const state = new EphemeralStateService();
+    const signal = state.start('req-1', 'conv-1', 'user-1', 'msg-1');
+    expect(state.stop('msg-1')).toBe(true);
+    expect(signal.aborted).toBe(true);
+  });
+
+  it('reports a message this process is not streaming', () => {
+    const state = new EphemeralStateService();
+    state.start('req-1', 'conv-1', 'user-1', 'msg-1');
+    expect(state.stop('msg-2')).toBe(false);
+  });
+});

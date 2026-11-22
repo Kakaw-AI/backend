@@ -61,7 +61,10 @@ export class AgentGatewayService {
     return payload as AgentSyncResponse;
   }
 
-  async *streamChat(input: AgentRunRequest): AsyncGenerator<AgentStreamEvent> {
+  async *streamChat(
+    input: AgentRunRequest,
+    signal?: AbortSignal,
+  ): AsyncGenerator<AgentStreamEvent> {
     const body = JSON.stringify(input);
     const timestamp = Date.now().toString();
     const response = await fetch(this.resolveUrl('/api/chat/run'), {
@@ -73,7 +76,10 @@ export class AgentGatewayService {
       },
       body,
       // A run makes several LLM calls and a local model may take 10 minutes on each.
-      signal: AbortSignal.timeout(1_800_000),
+      // Aborting also drops the agent's connection, which cancels the run there.
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(1_800_000)])
+        : AbortSignal.timeout(1_800_000),
     }).catch((error) => {
       const message =
         error instanceof Error && error.name === 'TimeoutError'

@@ -191,6 +191,21 @@ export class ConversationService {
     );
   }
 
+  /** Marks a STREAMING message no process is producing as stopped. */
+  async stopOrphanedMessage(conversationId: string, messageId: string, error: string) {
+    const message = await this.chatRepository.findAssistantMessage(
+      conversationId,
+      messageId,
+    );
+    if (!message) {
+      throw new BadRequestException('Message could not be found.');
+    }
+    if (message.status !== MessageStatus.STREAMING) {
+      return false;
+    }
+    return this.chatRepository.stopStreamingMessage(messageId, error);
+  }
+
   async renameConversation(conversationId: string, title: string) {
     await this.chatRepository.renameConversation(conversationId, title);
   }

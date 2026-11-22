@@ -3,6 +3,7 @@ import { AgentGatewayService } from './agent-gateway.service';
 import { AgentStreamEvent } from './chat.types';
 
 type StreamChatInput = Parameters<AgentGatewayService['streamChat']>[0];
+type StreamChatSignal = Parameters<AgentGatewayService['streamChat']>[1];
 
 @Injectable()
 export class MessageStreamingService {
@@ -12,7 +13,10 @@ export class MessageStreamingService {
     return this.agentGatewayService.createRequestId();
   }
 
-  streamFromAgent(input: StreamChatInput): AsyncIterable<AgentStreamEvent> {
-    return this.agentGatewayService.streamChat(input);
+  streamFromAgent(
+    input: StreamChatInput,
+    signal?: StreamChatSignal,
+  ): AsyncIterable<AgentStreamEvent> {
+    return this.agentGatewayService.streamChat(input, signal);
   }
 }
