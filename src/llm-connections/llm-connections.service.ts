@@ -6,11 +6,13 @@ import { LlmConnectionsRepository } from './llm-connections.repository';
 import { SecretsService } from './secrets.service';
 import {
   CreateLlmConnectionInput,
+  ListProviderModelsInput,
   LlmConnectionAction,
   SupportedLlmProvider,
   buildDefaultDisplayName,
   getEffectiveRuntimeBaseUrl,
   normalizeBaseUrl,
+  parseModelList,
   providerTakesOptionalApiKey,
   toPrismaLlmProvider,
 } from './llm-connections.types';
@@ -83,7 +85,7 @@ export class LlmConnectionsService {
       ? input.displayName.trim()
       : buildDefaultDisplayName(input.provider, defaultModel);
     const takesOptionalApiKey = providerTakesOptionalApiKey(input.provider);
-    const apiKey = input.apiKey?.trim();
+    const apiKey = await this.resolveApiKey(userId, input);
     const normalizedBaseUrl = normalizeBaseUrl(input.baseUrl);
     const effectiveRuntimeBaseUrl = getEffectiveRuntimeBaseUrl(
       input.provider,
@@ -244,6 +246,73 @@ export class LlmConnectionsService {
     }
 
     return connection;
+  }
+
+  /**
+   * The key to use: the one typed, or the one saved on another of the user's
+   * connections to the same provider. The saved key never leaves the server;
+   * the client only names the connection.
+   */
+  private async resolveApiKey(
+    userId: string,
+    input: { provider: SupportedLlmProvider; apiKey?: string; reuseKeyFromConnectionId?: string },
+  ): Promise<string | undefined> {
+    const typed = input.apiKey?.trim();
+    if (typed || !input.reuseKeyFromConnectionId) {
+      return typed || undefined;
+    }
+
+    const source = await this.llmConnectionsRepository.findRuntimeByUserAndId(
+      userId,
+      input.reuseKeyFromConnectionId,
+    );
+    if (!source?.encryptedApiKey) {
+      throw new BadRequestException('The saved key to reuse could not be found.');
+    }
+    if (source.provider !== input.provider) {
+      throw new BadRequestException('A saved key can only be reused for the same provider.');
+    }
+    return this.secretsService.decrypt(source.encryptedApiKey);
+  }
+
+  /** The chat models the provider offers for this key, for the model picker. */
+  async listModelsForUser(userId: string, input: ListProviderModelsInput) {
+    const apiKey = await this.resolveApiKey(userId, input);
+    if (!providerTakesOptionalApiKey(input.provider) && !apiKey) {
+      throw new BadRequestException('apiKey is required for this provider.');
+    }
+
+    const normalizedBaseUrl = normalizeBaseUrl(input.baseUrl);
+    const effectiveRuntimeBaseUrl = getEffectiveRuntimeBaseUrl(input.provider, input.baseUrl);
+    if (effectiveRuntimeBaseUrl) {
+      await assertPublicUrl(effectiveRuntimeBaseUrl);
+    }
+
+    const request = this.buildProviderValidationRequest(
+      input.provider,
+      apiKey ?? '',
+      normalizedBaseUrl ?? undefined,
+    );
+    // The validation call asks for one page; a picker wants the whole list.
+    if (input.provider === 'anthropic') request.url += '?limit=1000';
+    if (input.provider === 'google') request.url += '&pageSize=1000';
+
+    let response: Response;
+    try {
+      response = await this.fetchValidationRequest(request);
+    } catch (error) {
+      throw new BadRequestException(
+        this.toConnectionErrorMessage(error, 'Unable to load the model list.'),
+      );
+    }
+    if (!response.ok) {
+      throw new BadRequestException(
+        `Unable to load the model list. ${await this.readValidationFailure(response)}`,
+      );
+    }
+
+    const payload: unknown = await response.json().catch(() => null);
+    return { models: parseModelList(input.provider, payload) };
   }
 
   async activateForUser(userId: string, id: string) {

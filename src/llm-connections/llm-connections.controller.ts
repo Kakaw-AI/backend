@@ -22,6 +22,7 @@ type CreateLlmConnectionBody = {
   defaultModel?: unknown;
   apiKey?: unknown;
   baseUrl?: unknown;
+  reuseKeyFromConnectionId?: unknown;
 };
 
 @Controller('llm-connections')
@@ -39,6 +40,22 @@ export class LlmConnectionsController {
   ) {
     const input = this.toCreateInput(body);
     return this.llmConnectionsService.createForUser(user.id, input);
+  }
+
+  // POST so the key travels in the body, not the URL. One outbound call each.
+  @RateLimit(30)
+  @Post('models')
+  listProviderModels(
+    @CurrentUser() user: AuthUser,
+    @Body() body: CreateLlmConnectionBody,
+  ) {
+    const { provider, apiKey, baseUrl, reuseKeyFromConnectionId } = this.toCreateInput(body);
+    return this.llmConnectionsService.listModelsForUser(user.id, {
+      provider,
+      apiKey,
+      baseUrl,
+      reuseKeyFromConnectionId,
+    });
   }
 
   @Post(':id/activate')
@@ -92,6 +109,10 @@ export class LlmConnectionsController {
           : undefined,
       apiKey: typeof body.apiKey === 'string' ? body.apiKey.trim() : undefined,
       baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl.trim() : undefined,
+      reuseKeyFromConnectionId:
+        typeof body.reuseKeyFromConnectionId === 'string' && body.reuseKeyFromConnectionId.trim()
+          ? body.reuseKeyFromConnectionId.trim()
+          : undefined,
     };
   }
 

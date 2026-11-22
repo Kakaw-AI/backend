@@ -17,7 +17,11 @@ export type CreateLlmConnectionInput = {
   defaultModel?: string;
   apiKey?: string;
   baseUrl?: string;
+  /** Use the key saved on this connection of the user's instead of typing it again. */
+  reuseKeyFromConnectionId?: string;
 };
+
+export type ListProviderModelsInput = Omit<CreateLlmConnectionInput, 'displayName' | 'defaultModel'>;
 
 export type LlmConnectionAction = 'activate' | 'deactivate' | 'delete';
 
@@ -110,3 +114,51 @@ export function buildDefaultDisplayName(
 
   return `${providerLabel} · ${defaultModel}`;
 }
+
+// Models a chat cannot use: embeddings, speech, images, video, moderation and
+// the like. Only applied to the big providers; OpenRouter, Ollama and LM Studio
+// list what the user chose to run.
+const NON_CHAT_MODEL =
+  /embed|whisper|tts|dall-e|moderation|image|audio|realtime|transcribe|davinci|babbage|search|sora|speech|computer-use|rerank|lyria|genie|imagen|veo|banana|omni|decision|robotics|live|deep-research|antigravity|aqa/i;
+
+const MAX_LISTED_MODELS = 500;
+
+type ListedModel = { id?: unknown; name?: unknown; created?: unknown; created_at?: unknown; supportedGenerationMethods?: unknown };
+
+/**
+ * Model ids from a provider's model-list response, chat models only, newest
+ * first where the provider says when a model was created.
+ */
+export function parseModelList(provider: SupportedLlmProvider, payload: unknown): string[] {
+  const body = (payload ?? {}) as { data?: ListedModel[]; models?: ListedModel[] };
+  const items: ListedModel[] = Array.isArray(body.data) ? body.data : Array.isArray(body.models) ? body.models : [];
+
+  const listed = items
+    .filter((item) =>
+      provider !== 'google' ||
+      (Array.isArray(item.supportedGenerationMethods) && item.supportedGenerationMethods.includes('generateContent')),
+    )
+    .map((item, index) => {
+      const raw = typeof item.id === 'string' ? item.id : typeof item.name === 'string' ? item.name : '';
+      const created =
+        typeof item.created === 'number'
+          ? item.created * 1000
+          : typeof item.created_at === 'string'
+            ? Date.parse(item.created_at)
+            : NaN;
+      return { id: raw.replace(/^models\//, '').trim(), created, index };
+    })
+    .filter((model) => model.id);
+
+  const filtered =
+    provider === 'openai' || provider === 'anthropic' || provider === 'google'
+      ? listed.filter((model) => !NON_CHAT_MODEL.test(model.id))
+      : listed;
+
+  const sorted = filtered.some((model) => Number.isFinite(model.created))
+    ? [...filtered].sort((a, b) => (b.created || 0) - (a.created || 0) || a.index - b.index)
+    : filtered;
+
+  return [...new Set(sorted.map((model) => model.id))].slice(0, MAX_LISTED_MODELS);
+}
+
