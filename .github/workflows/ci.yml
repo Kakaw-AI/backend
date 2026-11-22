@@ -10,6 +10,34 @@ env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/kakaw-backend
 
 jobs:
+  docs-check:
+    # Warns, never fails: a commit that changes code the docs describe
+    # (docs-map.json) should carry a "Docs: updated ..." or "Docs: none, ..." line.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check commits for a docs check
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            RANGE="$BASE..$HEAD"
+          elif [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            RANGE="$AFTER~1..$AFTER"
+          else
+            RANGE="$BEFORE..$AFTER"
+          fi
+          node scripts/docs-check.mjs --ci "$RANGE"
+
   build-test:
     runs-on: ubuntu-latest
     steps:

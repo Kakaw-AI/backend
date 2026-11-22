@@ -1,0 +1,42 @@
+{
+  "$comment": "Which docs pages describe which code. The user docs live in the frontend repo; architecture notes in the org .github repo under docs/. Used by scripts/docs-check.mjs and the docs-sync skill.",
+  "docsRepo": "../frontend",
+  "docsPath": "src/content/docs",
+  "rules": [
+    {
+      "paths": ["src/llm-connections/**"],
+      "docs": ["models/providers.mdx", "models/local-models.mdx", "privacy-and-security.mdx"],
+      "architecture": ["04-data-and-sync.md", "05-security-and-operations.md"]
+    },
+    {
+      "paths": ["src/database-sources/**", "src/storage/**", "src/database-knowledge/**"],
+      "docs": ["data/postgres.mdx", "data/sqlite.mdx", "data/schema-sync.mdx", "privacy-and-security.mdx"],
+      "architecture": ["04-data-and-sync.md"]
+    },
+    {
+      "paths": ["src/chat/**", "src/agent-runtime/**"],
+      "docs": ["chat/controls.mdx", "chat/results.mdx", "troubleshooting.mdx", "reference/limits.mdx"],
+      "architecture": ["02-chat-request-flow.md"]
+    },
+    {
+      "paths": ["src/retrieval/**"],
+      "docs": ["how-it-works.mdx", "privacy-and-security.mdx"],
+      "architecture": ["04-data-and-sync.md"]
+    },
+    {
+      "paths": ["src/common/guards/**", "src/common/net/**", "src/auth/**"],
+      "docs": ["privacy-and-security.mdx", "reference/limits.mdx"],
+      "architecture": ["05-security-and-operations.md"]
+    },
+    {
+      "paths": ["src/users/**", "prisma/schema.prisma"],
+      "docs": ["privacy-and-security.mdx", "chat/controls.mdx"],
+      "architecture": ["04-data-and-sync.md"]
+    },
+    {
+      "paths": ["src/config/**", "src/main.ts", "src/app.module.ts"],
+      "docs": [],
+      "architecture": ["05-security-and-operations.md", "01-system-overview.md"]
+    }
+  ]
+}
