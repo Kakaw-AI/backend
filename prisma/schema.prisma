@@ -24,6 +24,7 @@ model User {
   llmConnections  LlmConnection[]
   conversations   Conversation[]
   agentRunTraces  AgentRunTrace[]
+  tokenUsage      TokenUsageEntry[]
 
   @@map("users")
 }
@@ -409,4 +410,21 @@ model AgentRunTrace {
   // the userId-leading index above cannot serve.
   @@index([databaseSourceId, createdAt])
   @@map("agent_run_traces")
+}
+
+/// Token usage per agent run, kept apart from the trace so it outlives deleted
+/// chats and databases. Only the user cascade removes it. Holds no question,
+/// answer or query text.
+model TokenUsageEntry {
+  id           String   @id @default(cuid())
+  model        String
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("token_usage_entries")
 }

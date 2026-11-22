@@ -392,7 +392,7 @@ export class ChatRepository {
     });
   }
 
-  createAgentRunTrace(input: {
+  async createAgentRunTrace(input: {
     requestId: string;
     status: MessageStatus;
     effectiveModel: string;
@@ -413,6 +413,23 @@ export class ChatRepository {
     llmConnectionId?: string | null;
     messageId: string;
   }) {
+    // The usage row outlives the trace, which goes when its chat or database is deleted.
+    const [trace] = await this.prisma.$transaction([
+      this.agentRunTraceCreate(input),
+      this.prisma.tokenUsageEntry.create({
+        data: {
+          userId: input.userId,
+          model: input.effectiveModel,
+          inputTokens: Math.round(input.tokenUsage?.inputTokens ?? 0),
+          outputTokens: Math.round(input.tokenUsage?.outputTokens ?? 0),
+        },
+        select: { id: true },
+      }),
+    ]);
+    return trace;
+  }
+
+  private agentRunTraceCreate(input: Parameters<ChatRepository['createAgentRunTrace']>[0]) {
     return this.prisma.agentRunTrace.create({
       data: {
         requestId: input.requestId,

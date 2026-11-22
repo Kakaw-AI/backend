@@ -33,8 +33,8 @@ export class UsersService {
 
   /**
    * What the profile window shows: how much the user has set up and used.
-   * Tokens come from the agent run traces, one per turn (failed turns too),
-   * which is where each run records its model and token usage.
+   * Tokens come from the usage ledger, one row per turn (failed turns too).
+   * Unlike the traces, it stays when chats or databases are deleted.
    */
   async getUsage(userId: string) {
     const [user, conversations, questions, databases, uploads, apiKeys, byModel] =
@@ -54,17 +54,15 @@ export class UsersService {
         this.prisma.llmConnection.count({ where: { userId } }),
         this.prisma.$queryRaw<UsageRow[]>`
           SELECT
-            "effectiveModel" AS model,
+            model,
             COUNT(*)::float8 AS runs,
-            COALESCE(SUM(("tokenUsage"->>'inputTokens')::float8), 0) AS input,
-            COALESCE(SUM(("tokenUsage"->>'outputTokens')::float8), 0) AS output,
-            COALESCE(SUM(
-              COALESCE(("tokenUsage"->>'inputTokens')::float8, 0) +
-              COALESCE(("tokenUsage"->>'outputTokens')::float8, 0)
-            ) FILTER (WHERE "createdAt" > now() - interval '30 days'), 0) AS "last30Days"
-          FROM agent_run_traces
+            COALESCE(SUM("inputTokens"), 0)::float8 AS input,
+            COALESCE(SUM("outputTokens"), 0)::float8 AS output,
+            COALESCE(SUM("inputTokens" + "outputTokens")
+              FILTER (WHERE "createdAt" > now() - interval '30 days'), 0)::float8 AS "last30Days"
+          FROM token_usage_entries
           WHERE "userId" = ${userId}
-          GROUP BY "effectiveModel"`,
+          GROUP BY model`,
       ]);
 
     const models = byModel.map((row) => ({
