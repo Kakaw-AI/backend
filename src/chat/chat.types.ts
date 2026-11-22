@@ -76,6 +76,8 @@ export type AgentRunRequest = {
   knowledge: DatabaseKnowledgeRuntime;
   llm: AgentLlmRuntime;
   retrieval?: AgentRetrievalContext;
+  /** Ask the agent to name the conversation from this message. */
+  generateTitle?: boolean;
 };
 
 export type AgentSyncRequest = {
@@ -306,6 +308,11 @@ export type TracePersistedEvent = {
   };
 };
 
+export type TitleGeneratedEvent = {
+  type: 'title_generated';
+  data: { title: string };
+};
+
 export type AgentStreamEvent =
   | MessageStartedEvent
   | MessageDeltaEvent
@@ -318,7 +325,8 @@ export type AgentStreamEvent =
   | AgentStepEvent
   | SuggestionsGeneratedEvent
   | AgentTraceEvent
-  | TracePersistedEvent;
+  | TracePersistedEvent
+  | TitleGeneratedEvent;
 
 export type CreateConversationInput = {
   databaseSourceId: string;

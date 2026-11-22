@@ -292,6 +292,7 @@ export class ChatService {
           ? { ...runtime.llm, disableThinking: true }
           : runtime.llm,
         retrieval: params.retrieval,
+        generateTitle: this.conversationService.hasPlaceholderTitle(conversation.title),
       })) {
         this.ephemeralStateService.touch(requestId);
         this.artifactService.collectFromEvent(event, artifactBuffer);
@@ -337,6 +338,18 @@ export class ChatService {
               data: { messageId: assistantMessageId, suggestions },
             };
             break;
+          case 'title_generated': {
+            const title = event.data.title?.trim().slice(0, 120);
+            if (!title) break;
+            // A failed rename only costs the title; the answer still lands.
+            try {
+              await this.conversationService.renameConversation(conversationId, title);
+              yield { type: 'title_generated', data: { title } };
+            } catch {
+              // ignore
+            }
+            break;
+          }
           case 'agent_trace':
             traceSteps = Array.isArray(event.data.steps) ? event.data.steps : [];
             traceToolCalls = Array.isArray(event.data.toolCalls)

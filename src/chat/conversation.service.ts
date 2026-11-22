@@ -177,6 +177,24 @@ export class ConversationService {
     return this.chatRepository.createMessagePair({ conversationId, content });
   }
 
+  /**
+   * True while the conversation still carries a title nobody chose: "New chat",
+   * the "New chat · source · model" fallback, or an old ISO-timestamp title.
+   */
+  hasPlaceholderTitle(title: string) {
+    const trimmed = title.trim();
+    return (
+      trimmed === '' ||
+      trimmed === 'New chat' ||
+      trimmed.startsWith('New chat · ') ||
+      /^\d{4}-\d{2}-\d{2}T/.test(trimmed)
+    );
+  }
+
+  async renameConversation(conversationId: string, title: string) {
+    await this.chatRepository.renameConversation(conversationId, title);
+  }
+
   async findRecentHistory(conversationId: string, limit: number) {
     return this.chatRepository.findRecentHistory(conversationId, limit);
   }
