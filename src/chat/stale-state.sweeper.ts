@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { DatabaseSourceStatus, MessageStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { EphemeralStateService } from './ephemeral-state.service';
 
 // Both limits sit well past the longest a healthy run can take: a chat stream
 // is cut at 30 minutes (agent-gateway) and a sync at 60 seconds plus the catalog
@@ -27,7 +28,10 @@ export class StaleStateSweeper implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(StaleStateSweeper.name);
   private timer?: NodeJS.Timeout;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ephemeralState: EphemeralStateService,
+  ) {}
 
   onModuleInit() {
     void this.sweep();
@@ -35,8 +39,31 @@ export class StaleStateSweeper implements OnModuleInit, OnModuleDestroy {
     this.timer.unref();
   }
 
-  onModuleDestroy() {
+  /**
+   * Runs first in app.close(), before the HTTP server drains. The process is
+   * killed a few seconds later, which cuts any stream still running before its
+   * own cleanup can record it, so the message would sit STREAMING until the
+   * age-based sweep. Failing them here shows the retry button right away; a
+   * stream that still finishes in the grace period overwrites this.
+   */
+  async onModuleDestroy() {
     clearInterval(this.timer);
+    const ids = this.ephemeralState.activeMessageIds();
+    if (ids.length === 0) return;
+    try {
+      const { count } = await this.prisma.message.updateMany({
+        where: { id: { in: ids }, status: MessageStatus.STREAMING },
+        data: {
+          status: MessageStatus.FAILED,
+          error: 'The server restarted before the response finished. Please try again.',
+        },
+      });
+      this.logger.warn(`Failed ${count} in-flight message(s) on shutdown.`);
+    } catch (error) {
+      this.logger.warn(
+        `Shutdown sweep failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   async sweep() {

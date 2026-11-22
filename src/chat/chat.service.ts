@@ -271,7 +271,7 @@ export class ChatService {
     // the message FAILED instead of leaving it stuck STREAMING forever.
     let settled = false;
 
-    this.ephemeralStateService.start(requestId, conversationId, userId);
+    this.ephemeralStateService.start(requestId, conversationId, userId, assistantMessageId);
 
     yield {
       type: 'message_started',
