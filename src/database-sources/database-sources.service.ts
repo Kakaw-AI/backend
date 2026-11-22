@@ -211,6 +211,14 @@ export class DatabaseSourcesService implements OnModuleInit {
       throw new BadRequestException('Selected database source could not be found.');
     }
 
+    // Two syncs at once would race to replace the same catalog.
+    if (
+      source.status === DatabaseSourceStatus.PENDING ||
+      source.status === DatabaseSourceStatus.SYNCING
+    ) {
+      throw new BadRequestException('This database is already being indexed.');
+    }
+
     const REFRESH_COOLDOWN_MS = 30_000;
     const lastSynced = source.lastSyncedAt;
     if (lastSynced && Date.now() - lastSynced.getTime() < REFRESH_COOLDOWN_MS) {
