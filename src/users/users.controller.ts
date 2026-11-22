@@ -28,6 +28,11 @@ export class UsersController {
     await this.usersService.deleteAccount(user.id);
   }
 
+  @Get('usage')
+  getUsage(@CurrentUser() user: AuthUser) {
+    return this.usersService.getUsage(user.id);
+  }
+
   @Get('chat-options')
   getChatOptions(@CurrentUser() user: AuthUser) {
     return this.usersService.getChatOptions(user.id);
