@@ -15,4 +15,5 @@ jobs:
       - name: Redeploy on Dokploy
         env:
           DOKPLOY_WEBHOOK_URL: ${{ secrets.DOKPLOY_WEBHOOK_URL }}
-        run: curl -fsS -X POST -H 'Content-Type: application/json' -d '{}' "$DOKPLOY_WEBHOOK_URL"
+        run: |
+          curl -fsS -X POST -H 'Content-Type: application/json' -d '{}' "$DOKPLOY_WEBHOOK_URL"
