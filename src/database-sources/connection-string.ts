@@ -1,4 +1,4 @@
-import type { SupportedDatabaseProvider } from './database-sources.types';
+import type { ConnectionStringProvider } from './database-sources.types';
 
 /**
  * Format only. Which hosts may be dialled, and which MongoDB options are
@@ -6,7 +6,7 @@ import type { SupportedDatabaseProvider } from './database-sources.types';
  * query-string override cannot get past it.
  */
 export function connectionStringError(
-  provider: Exclude<SupportedDatabaseProvider, 'sqlite'>,
+  provider: ConnectionStringProvider,
   connectionString: string,
 ): string | null {
   if (provider === 'postgresql') {

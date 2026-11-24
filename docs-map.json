@@ -10,7 +10,7 @@
     },
     {
       "paths": ["src/database-sources/**", "src/storage/**", "src/database-knowledge/**"],
-      "docs": ["data/postgres.mdx", "data/sqlite.mdx", "data/schema-sync.mdx", "privacy-and-security.mdx"],
+      "docs": ["data/postgres.mdx", "data/mongodb.mdx", "data/sqlite.mdx", "data/schema-sync.mdx", "privacy-and-security.mdx"],
       "architecture": ["04-data-and-sync.md"]
     },
     {

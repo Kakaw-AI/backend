@@ -7,7 +7,7 @@ import {
 } from '@prisma/client';
 import { DatabaseSourcesService } from '../database-sources/database-sources.service';
 import {
-  PROVIDER_LABELS,
+  providerLabel,
   type SupportedDatabaseProvider,
 } from '../database-sources/database-sources.types';
 import { fromPrismaLlmProvider } from '../llm-connections/llm-connections.types';
@@ -443,6 +443,6 @@ export class ConversationService {
     if (provider === 'sqlite') {
       return sqliteOriginalFilename?.trim() || 'SQLite upload';
     }
-    return PROVIDER_LABELS[provider as SupportedDatabaseProvider] ?? provider;
+    return providerLabel(provider);
   }
 }

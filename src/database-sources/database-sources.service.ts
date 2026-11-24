@@ -14,7 +14,8 @@ import { R2Service } from '../storage/r2.service';
 import { DatabaseSourcesRepository } from './database-sources.repository';
 import { connectionStringError } from './connection-string';
 import {
-  PROVIDER_LABELS,
+  ConnectionStringProvider,
+  providerLabel,
   SQLITE_ALLOWED_EXTENSIONS,
   SQLITE_UPLOAD_MAX_BYTES,
   SupportedDatabaseProvider,
@@ -272,13 +273,13 @@ export class DatabaseSourcesService implements OnModuleInit {
 
   private async createConnectionStringSource(
     userId: string,
-    provider: 'postgresql' | 'mongodb',
+    provider: ConnectionStringProvider,
     connectionString?: string,
     name?: string,
   ) {
     if (!connectionString) {
       throw new BadRequestException(
-        `A ${PROVIDER_LABELS[provider]} connection string is required.`,
+        `A ${providerLabel(provider)} connection string is required.`,
       );
     }
 
@@ -422,7 +423,7 @@ export class DatabaseSourcesService implements OnModuleInit {
 
     return provider === 'sqlite'
       ? sqliteOriginalFilename?.trim() || 'SQLite upload'
-      : `${PROVIDER_LABELS[provider as SupportedDatabaseProvider] ?? provider} connection`;
+      : `${providerLabel(provider)} connection`;
   }
 
   async toAgentDatabaseRuntime(

@@ -88,7 +88,7 @@ export class DatabaseSourcesController {
       )
     ) {
       throw new BadRequestException(
-        'Unsupported provider. Only postgresql, mongodb and sqlite are available right now.',
+        `Unsupported provider. Use one of: ${SUPPORTED_DATABASE_PROVIDERS.join(', ')}.`,
       );
     }
 
