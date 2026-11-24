@@ -12,7 +12,9 @@ import { normalizeApiError } from '../common/errors/error-response';
 import { SecretsService } from '../llm-connections/secrets.service';
 import { R2Service } from '../storage/r2.service';
 import { DatabaseSourcesRepository } from './database-sources.repository';
+import { connectionStringError } from './connection-string';
 import {
+  PROVIDER_LABELS,
   SQLITE_ALLOWED_EXTENSIONS,
   SQLITE_UPLOAD_MAX_BYTES,
   SupportedDatabaseProvider,
@@ -195,7 +197,13 @@ export class DatabaseSourcesService implements OnModuleInit {
     const name = input.name?.trim() || undefined;
     switch (input.provider) {
       case 'postgresql':
-        return this.createPostgresqlSource(userId, input.connectionString, name);
+      case 'mongodb':
+        return this.createConnectionStringSource(
+          userId,
+          input.provider,
+          input.connectionString,
+          name,
+        );
       case 'sqlite':
         return this.createSqliteSource(userId, input.sqlite, name);
     }
@@ -262,34 +270,26 @@ export class DatabaseSourcesService implements OnModuleInit {
     await Promise.all(keys.map((key) => this.r2Service.deleteObject(key)));
   }
 
-  private async createPostgresqlSource(
+  private async createConnectionStringSource(
     userId: string,
+    provider: 'postgresql' | 'mongodb',
     connectionString?: string,
     name?: string,
   ) {
     if (!connectionString) {
       throw new BadRequestException(
-        'A PostgreSQL connection string is required.',
+        `A ${PROVIDER_LABELS[provider]} connection string is required.`,
       );
     }
 
-    // Format only. Which hosts may be dialled is enforced by the agent on the
-    // socket it opens, where a query-string host override cannot get past it.
-    let protocol = '';
-    try {
-      protocol = new URL(connectionString).protocol;
-    } catch {
-      // handled below
-    }
-    if (protocol !== 'postgres:' && protocol !== 'postgresql:') {
-      throw new BadRequestException(
-        'The connection string must be a URL starting with postgresql://',
-      );
+    const error = connectionStringError(provider, connectionString);
+    if (error) {
+      throw new BadRequestException(error);
     }
 
     const pendingSource = await this.databaseSourcesRepository.createPending({
       userId,
-      provider: 'postgresql',
+      provider,
       name,
       connectionString: this.sealConnectionString(connectionString),
     });
@@ -422,7 +422,7 @@ export class DatabaseSourcesService implements OnModuleInit {
 
     return provider === 'sqlite'
       ? sqliteOriginalFilename?.trim() || 'SQLite upload'
-      : 'PostgreSQL connection';
+      : `${PROVIDER_LABELS[provider as SupportedDatabaseProvider] ?? provider} connection`;
   }
 
   async toAgentDatabaseRuntime(
@@ -457,7 +457,7 @@ export class DatabaseSourcesService implements OnModuleInit {
       ),
       schemaFingerprint: source.schemaFingerprint ?? undefined,
       connectionString:
-        source.provider === 'postgresql' && source.connectionString
+        !isSqlite && source.connectionString
           ? this.openConnectionString(source.connectionString)
           : undefined,
       sqliteObjectKey,

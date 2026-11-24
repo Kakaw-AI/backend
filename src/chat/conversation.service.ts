@@ -6,6 +6,10 @@ import {
   Prisma,
 } from '@prisma/client';
 import { DatabaseSourcesService } from '../database-sources/database-sources.service';
+import {
+  PROVIDER_LABELS,
+  type SupportedDatabaseProvider,
+} from '../database-sources/database-sources.types';
 import { fromPrismaLlmProvider } from '../llm-connections/llm-connections.types';
 import { LlmConnectionsService } from '../llm-connections/llm-connections.service';
 import { ChatRepository } from './chat.repository';
@@ -280,7 +284,8 @@ export class ConversationService {
       llmModelOverride,
       databaseSource: {
         id: conversation.databaseSource.id,
-        provider: conversation.databaseSource.provider as 'postgresql' | 'sqlite',
+        provider: conversation.databaseSource
+          .provider as SupportedDatabaseProvider,
         name: conversation.databaseSource.name,
         status: conversation.databaseSource.status,
         sqliteOriginalFilename: conversation.databaseSource.sqliteOriginalFilename,
@@ -438,9 +443,6 @@ export class ConversationService {
     if (provider === 'sqlite') {
       return sqliteOriginalFilename?.trim() || 'SQLite upload';
     }
-    if (provider === 'postgresql') {
-      return 'PostgreSQL';
-    }
-    return provider;
+    return PROVIDER_LABELS[provider as SupportedDatabaseProvider] ?? provider;
   }
 }

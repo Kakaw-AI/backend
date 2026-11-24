@@ -3,6 +3,7 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
+import type { SupportedDatabaseProvider } from '../database-sources/database-sources.types';
 import {
   LlmConnectionStatus,
   MessageArtifactType,
@@ -25,7 +26,7 @@ export type AgentHistoryMessage = {
 export type AgentDatabaseRuntime =
   {
     sourceId: string;
-    provider: 'postgresql' | 'sqlite';
+    provider: SupportedDatabaseProvider;
     label: string;
     schemaFingerprint?: string;
     connectionString?: string;
@@ -388,7 +389,7 @@ export type PersistedConversationMessage = {
 
 export type ConversationDatabaseSourceResponse = {
   id: string;
-  provider: 'postgresql' | 'sqlite';
+  provider: SupportedDatabaseProvider;
   name: string | null;
   status: string;
   sqliteOriginalFilename: string | null;
