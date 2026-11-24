@@ -164,7 +164,7 @@ export type PersistedAgentTraceMetadata = {
 };
 
 export type VisualizationChartSpecBase = {
-  kind: 'bar' | 'line' | 'pie' | 'scatter' | 'histogram' | 'network';
+  kind: 'bar' | 'line' | 'pie' | 'scatter' | 'histogram' | 'hbar' | 'bubble' | 'combo' | 'heatmap' | 'network';
   title?: string;
   xField: string;
   yField: string;
