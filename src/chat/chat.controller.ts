@@ -27,6 +27,8 @@ import {
   UpdateConversationRuntimeInput,
 } from './chat.types';
 
+const KEEP_ALIVE_MS = 20_000;
+
 @Controller('chat')
 export class ChatController {
   private readonly logger = new Logger(ChatController.name);
@@ -220,6 +222,11 @@ export class ChatController {
     response: Response,
   ) {
     return new Promise<boolean>((resolve) => {
+      // A model call can run past Cloudflare's 100 s idle limit with nothing
+      // to send; a blank line keeps the connection open (readers skip it).
+      const keepAlive = setInterval(() => {
+        if (response.headersSent) response.write('\n');
+      }, KEEP_ALIVE_MS);
       const unsubscribe = this.ephemeralState.followRun(
         messageId,
         userId,
@@ -227,6 +234,7 @@ export class ChatController {
         (event) => {
           if (!response.headersSent) this.startNdjson(response);
           if (event === null) {
+            clearInterval(keepAlive);
             response.end();
             resolve(true);
             return;
@@ -236,10 +244,12 @@ export class ChatController {
         },
       );
       if (!unsubscribe) {
+        clearInterval(keepAlive);
         resolve(false);
         return;
       }
       response.on('close', () => {
+        clearInterval(keepAlive);
         unsubscribe();
         resolve(true);
       });
