@@ -285,9 +285,9 @@ export class ChatService {
     let traceCacheKey: string | null = null;
     let traceCacheHit = false;
     let traceStandaloneQuestion: string | null = null;
-    // Tracks whether the message reached a persisted terminal state. If the
-    // client disconnects mid-stream (lost connection / tab switch), the
-    // generator is returned early and only `finally` runs — we use this to mark
+    // Tracks whether the message reached a persisted terminal state. The
+    // controller drains this generator to the end even when the browser goes
+    // away, so `finally` without it means something broke mid-persist: mark
     // the message FAILED instead of leaving it stuck STREAMING forever.
     let settled = false;
 

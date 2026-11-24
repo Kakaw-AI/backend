@@ -47,3 +47,34 @@ describe('EphemeralStateService.stop', () => {
     expect(state.stop('msg-2')).toBe(false);
   });
 });
+
+describe('EphemeralStateService runs', () => {
+  it('replays the reply so far to a late reader, then streams the rest', () => {
+    const state = new EphemeralStateService();
+    state.openRun('msg-1', 'user-1', 'conv-1');
+    state.pushRun('msg-1', { type: 'message_started' });
+    state.pushRun('msg-1', { type: 'agent_step', data: { text: 'Writing SQL' } });
+
+    const seen: unknown[] = [];
+    const unsubscribe = state.followRun('msg-1', 'user-1', 'conv-1', (event) => seen.push(event));
+    expect(unsubscribe).not.toBeNull();
+    state.pushRun('msg-1', { type: 'message_completed' });
+    state.closeRun('msg-1');
+
+    expect(seen).toEqual([
+      { type: 'message_started' },
+      { type: 'agent_step', data: { text: 'Writing SQL' } },
+      { type: 'message_completed' },
+      null,
+    ]);
+  });
+
+  it('refuses another user, another conversation and a finished reply', () => {
+    const state = new EphemeralStateService();
+    state.openRun('msg-1', 'user-1', 'conv-1');
+    expect(state.followRun('msg-1', 'user-2', 'conv-1', () => {})).toBeNull();
+    expect(state.followRun('msg-1', 'user-1', 'conv-2', () => {})).toBeNull();
+    state.closeRun('msg-1');
+    expect(state.followRun('msg-1', 'user-1', 'conv-1', () => {})).toBeNull();
+  });
+});

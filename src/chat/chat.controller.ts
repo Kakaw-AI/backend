@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  Logger,
   Param,
   Patch,
   Post,
@@ -16,7 +17,9 @@ import { AuthUser } from '../auth/better-auth.config';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RateLimit } from '../common/guards/rate-limit.guard';
 import { ChatService } from './chat.service';
+import { EphemeralStateService } from './ephemeral-state.service';
 import {
+  AgentStreamEvent,
   CreateConversationBody,
   CreateConversationInput,
   SendConversationMessageBody,
@@ -26,7 +29,12 @@ import {
 
 @Controller('chat')
 export class ChatController {
-  constructor(private readonly chatService: ChatService) {}
+  private readonly logger = new Logger(ChatController.name);
+
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly ephemeralState: EphemeralStateService,
+  ) {}
 
   @Get('conversations')
   listConversations(@CurrentUser() user: AuthUser) {
@@ -91,15 +99,16 @@ export class ChatController {
       throw new BadRequestException('content is required');
     }
 
+    const conversationId = this.toConversationId(id);
     const stream = this.chatService.streamConversationMessage(
       user.id,
       request,
-      this.toConversationId(id),
+      conversationId,
       content,
       body.thinking !== false,
     );
 
-    await this.pipeStream(stream, response);
+    await this.pipeStream(user.id, conversationId, stream, response);
   }
 
   @RateLimit(20)
@@ -111,14 +120,36 @@ export class ChatController {
     @Req() request: Request,
     @Res() response: Response,
   ) {
+    const conversationId = this.toConversationId(id);
     const stream = this.chatService.retryMessage(
       user.id,
       request,
-      this.toConversationId(id),
+      conversationId,
       this.toMessageId(messageId),
     );
 
-    await this.pipeStream(stream, response);
+    await this.pipeStream(user.id, conversationId, stream, response);
+  }
+
+  /**
+   * Re-attaches to a reply still being written: every event so far, then the
+   * live ones, as the same NDJSON stream. 204 when this process is not writing
+   * it (finished, or run elsewhere); the stored message is then the truth.
+   */
+  @Get('conversations/:id/messages/:messageId/stream')
+  async followConversationMessage(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('messageId') messageId: string,
+    @Res() response: Response,
+  ) {
+    const following = await this.followRun(
+      this.toMessageId(messageId),
+      user.id,
+      this.toConversationId(id),
+      response,
+    );
+    if (!following) response.status(204).end();
   }
 
   @Post('conversations/:id/messages/:messageId/stop')
@@ -135,7 +166,9 @@ export class ChatController {
   }
 
   private async pipeStream(
-    stream: AsyncGenerator<unknown>,
+    userId: string,
+    conversationId: string,
+    stream: AsyncGenerator<AgentStreamEvent>,
     response: Response,
   ) {
     // The first event is awaited before any header is written on purpose: setup
@@ -145,21 +178,79 @@ export class ChatController {
     // possible. Keeping setup off the critical path is handled upstream, by
     // caching the schema catalog and parallelizing the runtime resolution.
     const firstEvent = await stream.next();
+    if (firstEvent.done || firstEvent.value.type !== 'message_started') {
+      this.startNdjson(response);
+      if (!firstEvent.done) response.write(`${JSON.stringify(firstEvent.value)}
+`);
+      response.end();
+      return;
+    }
 
+    // The reply runs to the end on its own; this request is just its first
+    // reader. Closing the tab or losing the connection no longer cuts it, and
+    // the browser can re-attach with followConversationMessage.
+    const messageId = firstEvent.value.data.messageId;
+    this.ephemeralState.openRun(messageId, userId, conversationId);
+    this.ephemeralState.pushRun(messageId, firstEvent.value);
+    void this.drive(messageId, stream);
+
+    await this.followRun(messageId, userId, conversationId, response);
+  }
+
+  /** Pulls a reply to its end whether or not anyone is reading it. */
+  private async drive(messageId: string, stream: AsyncGenerator<AgentStreamEvent>) {
+    try {
+      for await (const event of stream) {
+        this.ephemeralState.pushRun(messageId, event);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Reply ${messageId} ended with an error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      this.ephemeralState.closeRun(messageId);
+    }
+  }
+
+  /** Writes a running reply to the response. False when no such reply is running here. */
+  private followRun(
+    messageId: string,
+    userId: string,
+    conversationId: string,
+    response: Response,
+  ) {
+    return new Promise<boolean>((resolve) => {
+      const unsubscribe = this.ephemeralState.followRun(
+        messageId,
+        userId,
+        conversationId,
+        (event) => {
+          if (!response.headersSent) this.startNdjson(response);
+          if (event === null) {
+            response.end();
+            resolve(true);
+            return;
+          }
+          response.write(`${JSON.stringify(event)}
+`);
+        },
+      );
+      if (!unsubscribe) {
+        resolve(false);
+        return;
+      }
+      response.on('close', () => {
+        unsubscribe();
+        resolve(true);
+      });
+    });
+  }
+
+  private startNdjson(response: Response) {
     response.setHeader('content-type', 'application/x-ndjson; charset=utf-8');
     response.setHeader('cache-control', 'no-cache, no-transform');
     response.setHeader('connection', 'keep-alive');
     response.flushHeaders();
-
-    if (!firstEvent.done) {
-      response.write(`${JSON.stringify(firstEvent.value)}\n`);
-    }
-
-    for await (const event of stream) {
-      response.write(`${JSON.stringify(event)}\n`);
-    }
-
-    response.end();
   }
 
   @Patch('conversations/:conversationId/traces/:traceId/feedback')
