@@ -9,7 +9,7 @@ The API behind [Kakaw AI](https://kakaw.gitnasr.com): sign-in, chat, saved datab
 
 ## What is in here
 
-NestJS with Prisma on PostgreSQL. The modules in `src/`:
+NestJS with Prisma on PostgreSQL (the app's own database; users connect PostgreSQL, MongoDB or SQLite). The modules in `src/`:
 
 | Module | What it does |
 | --- | --- |
