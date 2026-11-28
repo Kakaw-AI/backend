@@ -10,6 +10,7 @@ import { DatabaseSourcesModule } from './database-sources/database-sources.modul
 import { LlmConnectionsModule } from './llm-connections/llm-connections.module';
 import { UsersModule } from './users/users.module';
 import { ChatModule } from './chat/chat.module';
+import { BookModule } from './book/book.module';
 import { AuthGuard } from './common/guards/auth.guard';
 import { RateLimitGuard } from './common/guards/rate-limit.guard';
 import { HealthController } from './health.controller';
@@ -64,6 +65,7 @@ const isProd = process.env.NODE_ENV === 'production';
     LlmConnectionsModule,
     UsersModule,
     ChatModule,
+    BookModule,
   ],
   controllers: [HealthController],
   providers: [

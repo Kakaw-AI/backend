@@ -63,7 +63,20 @@ export class DatabaseKnowledgeService {
     return result;
   }
 
+  /**
+   * The catalog plus the knowledge book. The book changes without a resync,
+   * so it is read on every call rather than cached with the catalog.
+   * ponytail: one extra query per message; cache on the book's updatedAt if it shows up.
+   */
   async getRuntimeKnowledge(sourceId: string): Promise<DatabaseKnowledgeRuntime> {
+    const [catalog, book] = await Promise.all([
+      this.getCatalog(sourceId),
+      this.databaseKnowledgeRepository.getBook(sourceId),
+    ]);
+    return book ? { ...catalog, book } : catalog;
+  }
+
+  private async getCatalog(sourceId: string): Promise<DatabaseKnowledgeRuntime> {
     const fingerprint =
       await this.databaseKnowledgeRepository.getSchemaFingerprint(sourceId);
 

@@ -8,6 +8,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { normalizeApiErrorPayload } from '../common/errors/error-response';
 import {
+  AgentImproveOverviewRequest,
+  AgentImproveOverviewResponse,
+  AgentImproveTableRequest,
+  AgentImproveTableResponse,
   AgentRunRequest,
   AgentStreamEvent,
   AgentSyncRequest,
@@ -22,10 +26,31 @@ export class AgentGatewayService {
     return randomUUID();
   }
 
-  async syncDatabaseSource(input: AgentSyncRequest): Promise<AgentSyncResponse> {
+  syncDatabaseSource(input: AgentSyncRequest): Promise<AgentSyncResponse> {
+    return this.postJson('/api/chat/sync', input, 60_000, 'sync exceeded 60s', 'Agent runtime rejected the sync request.');
+  }
+
+  /** One table of the knowledge book. A local model may take minutes on it. */
+  improveTable(input: AgentImproveTableRequest, signal?: AbortSignal): Promise<AgentImproveTableResponse> {
+    return this.postJson('/api/improve/table', input, 900_000, 'a table took over 15 minutes', 'Agent runtime rejected the improve request.', signal);
+  }
+
+  improveOverview(input: AgentImproveOverviewRequest, signal?: AbortSignal): Promise<AgentImproveOverviewResponse> {
+    return this.postJson('/api/improve/overview', input, 900_000, 'the overview took over 15 minutes', 'Agent runtime rejected the improve request.', signal);
+  }
+
+  private async postJson<T>(
+    pathname: string,
+    input: unknown,
+    timeoutMs: number,
+    timeoutLabel: string,
+    rejectedMessage: string,
+    signal?: AbortSignal,
+  ): Promise<T> {
     const body = JSON.stringify(input);
     const timestamp = Date.now().toString();
-    const response = await fetch(this.resolveUrl('/api/chat/sync'), {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const response = await fetch(this.resolveUrl(pathname), {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -33,11 +58,11 @@ export class AgentGatewayService {
         'x-kakaw-signature': this.sign(timestamp, body),
       },
       body,
-      signal: AbortSignal.timeout(60_000),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     }).catch((error) => {
       const message =
         error instanceof Error && error.name === 'TimeoutError'
-          ? 'Agent runtime timed out (sync exceeded 60s).'
+          ? `Agent runtime timed out (${timeoutLabel}).`
           : `Unable to reach the agent runtime service. ${error instanceof Error ? error.message : ''}`.trim();
       throw new ServiceUnavailableException({
         error: {
@@ -51,14 +76,10 @@ export class AgentGatewayService {
 
     const payload = await this.readResponsePayload(response);
     if (!response.ok) {
-      this.throwAgentHttpError(
-        payload,
-        response.status,
-        'Agent runtime rejected the sync request.',
-      );
+      this.throwAgentHttpError(payload, response.status, rejectedMessage);
     }
 
-    return payload as AgentSyncResponse;
+    return payload as T;
   }
 
   async *streamChat(

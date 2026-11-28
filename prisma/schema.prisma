@@ -141,6 +141,7 @@ model DatabaseSource {
   tables             DatabaseSourceTable[]
   agentRunTraces     AgentRunTrace[]
   queryMemoryEntries QueryMemoryEntry[]
+  book               DatabaseBook?
 
   @@index([userId, sqliteFingerprint])
   @@map("database_sources")
@@ -201,6 +202,7 @@ model LlmConnection {
   user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversations  Conversation[]
   agentRunTraces AgentRunTrace[]
+  books          DatabaseBook[]
 
   @@index([userId])
   @@map("llm_connections")
@@ -355,6 +357,8 @@ model AgentRunTrace {
 /// answer or query text.
 model TokenUsageEntry {
   id           String   @id @default(cuid())
+  /// "chat" for an answer, "improver" for knowledge-book work.
+  kind         String   @default("chat")
   model        String
   inputTokens  Int      @default(0)
   outputTokens Int      @default(0)
@@ -365,4 +369,68 @@ model TokenUsageEntry {
 
   @@index([userId, createdAt])
   @@map("token_usage_entries")
+}
+
+enum BookStatus {
+  RUNNING
+  PARTIAL
+  READY
+  FAILED
+  CANCELLED
+}
+
+enum BookPageSource {
+  LLM
+  HUMAN
+}
+
+/// The Improver's knowledge book for one database: a page per table (what it
+/// holds, what its columns mean, joins checked against the data) and an
+/// overview. One per source; each run updates it in place.
+model DatabaseBook {
+  id                String     @id @default(cuid())
+  status            BookStatus @default(RUNNING)
+  overview          String?
+  /// Tokens the current or last run used; a run stops at its limit.
+  tokensUsed        Int        @default(0)
+  tablesTotal       Int        @default(0)
+  tablesDone        Int        @default(0)
+  /// The source's fingerprint when the last run finished; a newer one means the book is stale.
+  schemaFingerprint String?
+  lastError         String?
+  cancelRequested   Boolean    @default(false)
+  /// Runs that had to read every table, for the daily limit. Reset when runsDay changes.
+  fullRunsToday     Int        @default(0)
+  runsDay           String?
+  startedAt         DateTime   @default(now())
+  finishedAt        DateTime?
+  updatedAt         DateTime   @updatedAt
+
+  databaseSourceId String         @unique
+  databaseSource   DatabaseSource @relation(fields: [databaseSourceId], references: [id], onDelete: Cascade)
+  llmConnectionId  String?
+  llmConnection    LlmConnection? @relation(fields: [llmConnectionId], references: [id], onDelete: SetNull)
+  pages            BookPage[]
+
+  @@index([llmConnectionId])
+  @@map("database_books")
+}
+
+model BookPage {
+  id         String         @id @default(cuid())
+  /// "schema.table", or ".table" without a schema.
+  tableKey   String
+  /// Hash of the table's columns and keys when the page was written; a run rewrites the page when it changes.
+  schemaHash String
+  /// The page as the agent wrote it (BookTablePage).
+  content    Json
+  source     BookPageSource @default(LLM)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  bookId String
+  book   DatabaseBook @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@unique([bookId, tableKey])
+  @@map("book_pages")
 }

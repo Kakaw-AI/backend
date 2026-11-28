@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { DatabaseCatalogInput, DatabaseKnowledgeRuntime } from './database-knowledge.types';
+import { BookTablePage, DatabaseBook, DatabaseCatalogInput, DatabaseKnowledgeRuntime } from './database-knowledge.types';
 
 @Injectable()
 export class DatabaseKnowledgeRepository {
@@ -175,6 +175,21 @@ export class DatabaseKnowledgeRepository {
             targetColumn: relation.targetColumn,
           })),
         })) ?? [],
+    };
+  }
+
+  /** The knowledge book, or undefined before the Improver has written a page. */
+  async getBook(sourceId: string): Promise<DatabaseBook | undefined> {
+    const book = await this.prisma.databaseBook.findUnique({
+      where: { databaseSourceId: sourceId },
+      select: { overview: true, pages: { select: { content: true } } },
+    });
+    if (!book || book.pages.length === 0) {
+      return undefined;
+    }
+    return {
+      ...(book.overview ? { overview: book.overview } : {}),
+      tables: book.pages.map((page) => page.content as BookTablePage),
     };
   }
 

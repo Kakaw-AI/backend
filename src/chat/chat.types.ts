@@ -11,7 +11,7 @@ import {
   MessageStatus,
 } from '@prisma/client';
 import { normalizeApiError } from '../common/errors/error-response';
-import { DatabaseKnowledgeRuntime } from '../database-knowledge/database-knowledge.types';
+import { BookTablePage, DatabaseKnowledgeRuntime } from '../database-knowledge/database-knowledge.types';
 import { SupportedLlmProvider } from '../llm-connections/llm-connections.types';
 
 export type AgentHistoryMessage = {
@@ -79,6 +79,31 @@ export type AgentRunRequest = {
   retrieval?: AgentRetrievalContext;
   /** Ask the agent to name the conversation from this message. */
   generateTitle?: boolean;
+};
+
+export type AgentImproveTableRequest = {
+  requestId: string;
+  database: AgentDatabaseRuntime;
+  llm: AgentLlmRuntime;
+  knowledge: DatabaseKnowledgeRuntime;
+  table: { schemaName: string | null; name: string };
+};
+
+export type AgentImproveTableResponse = {
+  page: BookTablePage;
+  tokenUsage: TokenUsage | null;
+};
+
+export type AgentImproveOverviewRequest = {
+  requestId: string;
+  database: AgentDatabaseRuntime;
+  llm: AgentLlmRuntime;
+  knowledge: DatabaseKnowledgeRuntime;
+};
+
+export type AgentImproveOverviewResponse = {
+  overview: string;
+  tokenUsage: TokenUsage | null;
 };
 
 export type AgentSyncRequest = {

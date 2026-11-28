@@ -4,6 +4,11 @@
   "docsPath": "src/content/docs",
   "rules": [
     {
+      "paths": ["src/book/**"],
+      "docs": ["data/improve-accuracy.mdx", "privacy-and-security.mdx"],
+      "architecture": ["04-data-and-sync.md"]
+    },
+    {
       "paths": ["src/llm-connections/**"],
       "docs": ["models/providers.mdx", "models/local-models.mdx", "privacy-and-security.mdx"],
       "architecture": ["04-data-and-sync.md", "05-security-and-operations.md"]

@@ -50,47 +50,48 @@ export class RuntimeConfigService {
     return {
       database,
       knowledge,
-      llm: this.toLlmRuntime(llmConnection, model),
+      llm: toAgentLlmRuntime(llmConnection, model),
     };
   }
+}
 
-  private toLlmRuntime(
-    connection: Awaited<ReturnType<LlmConnectionsService['getRuntimeForUser']>>,
-    model: string,
-  ): AgentLlmRuntime {
-    if (!providerTakesOptionalApiKey(connection.provider) && !connection.apiKey?.trim()) {
-      throw buildRuntimeUnavailableException(
-        'Selected LLM connection is missing runtime credentials.',
-      );
-    }
+/** A stored LLM connection as the agent's runtime config. Shared by chat and the Improver. */
+export function toAgentLlmRuntime(
+  connection: Awaited<ReturnType<LlmConnectionsService['getRuntimeForUser']>>,
+  model: string,
+): AgentLlmRuntime {
+  if (!providerTakesOptionalApiKey(connection.provider) && !connection.apiKey?.trim()) {
+    throw buildRuntimeUnavailableException(
+      'Selected LLM connection is missing runtime credentials.',
+    );
+  }
 
-    switch (connection.provider) {
-      case 'openai':
-      case 'ollama':
-      case 'lm-studio':
-        return {
-          connectionId: connection.id,
-          provider: connection.provider,
-          model,
-          apiKey: connection.apiKey || 'empty',
-          baseUrl: getEffectiveRuntimeBaseUrl(connection.provider, connection.baseUrl) || 'https://api.openai.com/v1',
-        };
-      case 'openrouter':
-        return {
-          connectionId: connection.id,
-          provider: connection.provider,
-          model,
-          apiKey: connection.apiKey,
-          baseUrl: 'https://openrouter.ai/api/v1',
-        };
-      case 'google':
-      case 'anthropic':
-        return {
-          connectionId: connection.id,
-          provider: connection.provider,
-          model,
-          apiKey: connection.apiKey,
-        };
-    }
+  switch (connection.provider) {
+    case 'openai':
+    case 'ollama':
+    case 'lm-studio':
+      return {
+        connectionId: connection.id,
+        provider: connection.provider,
+        model,
+        apiKey: connection.apiKey || 'empty',
+        baseUrl: getEffectiveRuntimeBaseUrl(connection.provider, connection.baseUrl) || 'https://api.openai.com/v1',
+      };
+    case 'openrouter':
+      return {
+        connectionId: connection.id,
+        provider: connection.provider,
+        model,
+        apiKey: connection.apiKey,
+        baseUrl: 'https://openrouter.ai/api/v1',
+      };
+    case 'google':
+    case 'anthropic':
+      return {
+        connectionId: connection.id,
+        provider: connection.provider,
+        model,
+        apiKey: connection.apiKey,
+      };
   }
 }

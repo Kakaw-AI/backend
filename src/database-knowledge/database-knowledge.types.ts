@@ -33,6 +33,28 @@ export type DatabaseCatalogInput = {
   tables: DatabaseCatalogTableInput[];
 };
 
+/** One table's page of the knowledge book, as the agent's Improver writes it. */
+export type BookTablePage = {
+  schemaName?: string | null;
+  name: string;
+  purpose: string;
+  caveats: string[];
+  columns: Array<{ name: string; meaning: string }>;
+  relations: Array<{
+    sourceColumn: string;
+    targetSchema?: string | null;
+    targetTable: string;
+    targetColumn: string;
+    matchRate: number;
+  }>;
+  exampleQuestions: string[];
+};
+
+export type DatabaseBook = {
+  overview?: string;
+  tables: BookTablePage[];
+};
+
 export type DatabaseKnowledgeRuntime = {
   schemaFingerprint: string | null;
   summary: string;
@@ -43,4 +65,6 @@ export type DatabaseKnowledgeRuntime = {
     columns: DatabaseCatalogColumnInput[];
     foreignKeys: DatabaseCatalogForeignKeyInput[];
   }>;
+  /** The Improver's notes, folded into the catalog by the agent. Absent until a run wrote pages. */
+  book?: DatabaseBook;
 };
