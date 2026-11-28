@@ -7,7 +7,6 @@ import {
   HttpCode,
   Logger,
   Param,
-  Patch,
   Post,
   Req,
   Res,
@@ -261,20 +260,6 @@ export class ChatController {
     response.setHeader('cache-control', 'no-cache, no-transform');
     response.setHeader('connection', 'keep-alive');
     response.flushHeaders();
-  }
-
-  @Patch('conversations/:conversationId/traces/:traceId/feedback')
-  submitTraceFeedback(
-    @CurrentUser() user: AuthUser,
-    @Param('traceId') traceId: string,
-    @Body() body: { feedback: unknown },
-  ) {
-    const feedback = body.feedback;
-    if (feedback !== 'positive' && feedback !== 'negative') {
-      throw new BadRequestException('feedback must be "positive" or "negative"');
-    }
-
-    return this.chatService.submitTraceFeedback(traceId.trim(), user.id, feedback);
   }
 
   private toCreateConversationInput(

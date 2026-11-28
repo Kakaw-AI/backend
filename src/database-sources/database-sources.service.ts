@@ -388,13 +388,9 @@ export class DatabaseSourcesService implements OnModuleInit {
         schemaFingerprint: syncResult.schemaFingerprint,
         syncMetadata: syncResult.syncMetadata,
         tables: syncResult.catalog.tables,
-        knowledgeDocuments: syncResult.catalog.knowledgeDocuments,
       });
 
-      await this.databaseSourcesRepository.markReady(source.id, {
-        schemaFingerprint: syncResult.schemaFingerprint,
-        syncMetadata: syncResult.syncMetadata,
-      });
+      await this.databaseSourcesRepository.markReady(source.id);
     } catch (error) {
       const normalized = normalizeApiError(
         error,

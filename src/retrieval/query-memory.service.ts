@@ -56,7 +56,6 @@ function toFloat32(buffer: Buffer | Uint8Array | null): Float32Array | null {
 }
 
 export type RecordFromTraceInput = {
-  traceId: string;
   databaseSourceId: string;
   schemaFingerprint: string | null;
   question: string;
@@ -150,7 +149,7 @@ export class QueryMemoryService {
       // Embedded here, off the critical path, so a lookup never has to.
       // ~3ms; a failure just leaves the entry usable by the exact tier.
       const vector = await this.embeddingService.embedQuery(
-        entry.normalizedQuestion,
+        normalizeQuestion(entry.question),
       );
       const embedding = vector ? toBytes(vector) : null;
       const embeddingModel = vector ? this.embeddingService.modelId : null;
@@ -171,9 +170,7 @@ export class QueryMemoryService {
           question: entry.question,
           sql: entry.sql,
           tablesReferenced: entry.tablesReferenced,
-          rowCount: entry.rowCount,
           status: entry.status,
-          sourceTraceId: entry.sourceTraceId,
           embedding,
           embeddingModel,
         },
@@ -371,44 +368,6 @@ export class QueryMemoryService {
     return index;
   }
 
-  /** Records that an entry was reused, for eviction ordering. */
-  async markUsed(memoryId: string): Promise<void> {
-    try {
-      await this.prisma.queryMemoryEntry.update({
-        where: { id: memoryId },
-        data: { reuseCount: { increment: 1 }, lastUsedAt: new Date() },
-        select: { id: true },
-      });
-    } catch {
-      // Best-effort accounting.
-    }
-  }
-
-  /**
-   * Retires the entry a given run produced. Wired to negative feedback and to
-   * the implicit signals (retry, rephrase) once those land.
-   */
-  async demoteByTraceId(traceId: string): Promise<void> {
-    try {
-      const affected = await this.prisma.queryMemoryEntry.updateMany({
-        where: { sourceTraceId: traceId },
-        data: {
-          status: QueryMemoryStatus.RETIRED,
-          negativeCount: { increment: 1 },
-        },
-      });
-      if (affected.count > 0) {
-        this.indexCache.clear();
-      }
-    } catch (error) {
-      this.logger.warn(
-        `Failed to demote query memory for trace ${traceId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
-  }
-
   /**
    * Re-checks stored SQL against a newly synced catalog.
    *
@@ -525,13 +484,10 @@ export class QueryMemoryService {
       databaseSourceId: input.databaseSourceId,
       schemaFingerprint: input.schemaFingerprint,
       question: input.question.trim(),
-      normalizedQuestion,
       questionHash: questionHash(input.databaseSourceId, normalizedQuestion),
       sql: executed.sql,
       tablesReferenced: extractReferencedTables(executed.sql),
-      rowCount: executed.rowCount,
       status,
-      sourceTraceId: input.traceId,
     };
   }
 }

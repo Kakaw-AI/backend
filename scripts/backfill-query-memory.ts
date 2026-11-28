@@ -126,13 +126,10 @@ async function main() {
           databaseSourceId: trace.databaseSourceId,
           schemaFingerprint,
           question: trace.question.trim(),
-          normalizedQuestion: normalized,
           questionHash: questionHash(trace.databaseSourceId, normalized),
           sql: executed.sql,
           tablesReferenced: extractReferencedTables(executed.sql),
-          rowCount: executed.rowCount,
           status,
-          sourceTraceId: trace.id,
         };
 
         if (!args.dryRun) {
@@ -149,9 +146,7 @@ async function main() {
               question: data.question,
               sql: data.sql,
               tablesReferenced: data.tablesReferenced,
-              rowCount: data.rowCount,
               status: data.status,
-              sourceTraceId: data.sourceTraceId,
             },
           });
         }

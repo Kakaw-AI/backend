@@ -12,16 +12,6 @@ export class UsersController {
     return this.usersService.getOnboardingState(user.id);
   }
 
-  @Get('connections')
-  getConnections(@CurrentUser() user: AuthUser) {
-    return this.usersService.getConnections(user.id);
-  }
-
-  @Get('llm-connections')
-  getLlmConnections(@CurrentUser() user: AuthUser) {
-    return this.usersService.getLlmConnections(user.id);
-  }
-
   @Delete()
   @HttpCode(204)
   async deleteAccount(@CurrentUser() user: AuthUser) {

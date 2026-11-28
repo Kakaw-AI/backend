@@ -16,8 +16,6 @@ type CreatePendingLlmConnectionInput = {
   defaultModel: string;
   encryptedApiKey?: string;
   apiKeyLastFour?: string;
-  usesLinkedAccount: boolean;
-  linkedProviderId?: string;
   baseUrl?: string;
 };
 
@@ -36,8 +34,6 @@ export class LlmConnectionsRepository {
         displayName: true,
         defaultModel: true,
         apiKeyLastFour: true,
-        usesLinkedAccount: true,
-        linkedProviderId: true,
         baseUrl: true,
         isActive: true,
         lastError: true,
@@ -63,8 +59,6 @@ export class LlmConnectionsRepository {
         displayName: true,
         defaultModel: true,
         apiKeyLastFour: true,
-        usesLinkedAccount: true,
-        linkedProviderId: true,
         baseUrl: true,
         isActive: true,
         lastError: true,
@@ -95,8 +89,6 @@ export class LlmConnectionsRepository {
         defaultModel: true,
         encryptedApiKey: true,
         apiKeyLastFour: true,
-        usesLinkedAccount: true,
-        linkedProviderId: true,
         baseUrl: true,
         isActive: true,
         lastError: true,
@@ -148,7 +140,6 @@ export class LlmConnectionsRepository {
         displayName: true,
         defaultModel: true,
         encryptedApiKey: true,
-        linkedProviderId: true,
         baseUrl: true,
         isActive: true,
         status: true,
@@ -169,8 +160,6 @@ export class LlmConnectionsRepository {
         defaultModel: input.defaultModel,
         encryptedApiKey: input.encryptedApiKey,
         apiKeyLastFour: input.apiKeyLastFour,
-        usesLinkedAccount: input.usesLinkedAccount,
-        linkedProviderId: input.linkedProviderId,
         baseUrl: input.baseUrl,
       },
       select: {

@@ -29,9 +29,6 @@ export class ArtifactService {
           payload: { kind: 'web_sources', sources: event.data.sources },
         });
         break;
-      case 'artifact':
-        buffer.push({ type: event.data.artifactType, payload: event.data.payload });
-        break;
     }
   }
 

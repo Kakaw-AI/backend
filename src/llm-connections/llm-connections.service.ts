@@ -173,7 +173,6 @@ export class LlmConnectionsService {
                 defaultModel: input.defaultModel,
                 encryptedApiKey: input.encryptedApiKey,
                 apiKeyLastFour: input.apiKeyLastFour,
-                usesLinkedAccount: false,
                 baseUrl: input.baseUrl,
               },
               tx,
@@ -202,7 +201,6 @@ export class LlmConnectionsService {
       displayName: string;
       defaultModel: string;
       encryptedApiKey: string | null;
-      linkedProviderId: string | null;
       baseUrl: string | null;
     },
     input: {

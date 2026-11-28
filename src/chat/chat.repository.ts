@@ -98,8 +98,6 @@ const conversationSummarySelect = {
       displayName: true,
       defaultModel: true,
       apiKeyLastFour: true,
-      usesLinkedAccount: true,
-      linkedProviderId: true,
       isActive: true,
       lastError: true,
       lastTestedAt: true,
@@ -215,19 +213,6 @@ export class ChatRepository {
     ]);
 
     return { userMessage, assistantMessage };
-  }
-
-  setStreamingMessageContent(messageId: string, content: string) {
-    return this.prisma.message.update({
-      where: { id: messageId },
-      data: {
-        content,
-        status: MessageStatus.STREAMING,
-      },
-      select: {
-        id: true,
-      },
-    });
   }
 
   completeMessage(
@@ -393,20 +378,16 @@ export class ChatRepository {
   }
 
   async createAgentRunTrace(input: {
-    requestId: string;
-    status: MessageStatus;
+    /** Goes to the token ledger; the trace itself does not keep it. */
     effectiveModel: string;
     question: string;
-    response?: string | null;
     error?: string | null;
     tokenUsage?: TokenUsage | null;
     steps?: unknown;
     toolCalls?: unknown;
     repairHistory?: unknown;
     traceMetadata?: unknown;
-    cacheKey?: string | null;
     cacheHit?: boolean;
-    suggestions?: string[];
     userId: string;
     databaseSourceId: string;
     conversationId: string;
@@ -432,20 +413,14 @@ export class ChatRepository {
   private agentRunTraceCreate(input: Parameters<ChatRepository['createAgentRunTrace']>[0]) {
     return this.prisma.agentRunTrace.create({
       data: {
-        requestId: input.requestId,
-        status: input.status,
-        effectiveModel: input.effectiveModel,
         question: input.question,
-        response: input.response ?? null,
         error: input.error ?? null,
         tokenUsage: input.tokenUsage ?? Prisma.JsonNull,
         steps: input.steps ?? Prisma.JsonNull,
         toolCalls: input.toolCalls ?? Prisma.JsonNull,
         repairHistory: input.repairHistory ?? Prisma.JsonNull,
         chartSpec: input.traceMetadata ?? Prisma.JsonNull,
-        cacheKey: input.cacheKey ?? null,
         cacheHit: input.cacheHit ?? false,
-        suggestions: input.suggestions ?? [],
         userId: input.userId,
         databaseSourceId: input.databaseSourceId,
         conversationId: input.conversationId,
@@ -455,17 +430,6 @@ export class ChatRepository {
       select: {
         id: true,
       },
-    });
-  }
-
-  async submitFeedback(
-    traceId: string,
-    userId: string,
-    feedback: 'positive' | 'negative',
-  ): Promise<void> {
-    await this.prisma.agentRunTrace.updateMany({
-      where: { id: traceId, userId },
-      data: { feedback, feedbackAt: new Date() },
     });
   }
 

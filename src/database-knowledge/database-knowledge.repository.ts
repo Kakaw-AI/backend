@@ -24,18 +24,12 @@ export class DatabaseKnowledgeRepository {
             ],
           },
         });
-        await tx.databaseSourceIndex.deleteMany({
-          where: { tableId: { in: tableIds } },
-        });
         await tx.databaseSourceColumn.deleteMany({
           where: { tableId: { in: tableIds } },
         });
       }
 
       await tx.databaseSourceTable.deleteMany({
-        where: { databaseSourceId: sourceId },
-      });
-      await tx.databaseSourceKnowledgeDocument.deleteMany({
         where: { databaseSourceId: sourceId },
       });
 
@@ -48,7 +42,6 @@ export class DatabaseKnowledgeRepository {
             schemaName: table.schemaName ?? null,
             name: table.name,
             rowCount: table.rowCount ?? null,
-            sampleRows: (table.sampleRows ?? []) as Prisma.InputJsonValue,
           },
           select: { id: true },
         });
@@ -60,24 +53,11 @@ export class DatabaseKnowledgeRepository {
             data: table.columns.map((column) => ({
               tableId: createdTable.id,
               name: column.name,
-              normalizedName: column.normalizedName,
               dataType: column.dataType,
               isNullable: column.isNullable,
               isPrimaryKey: column.isPrimaryKey,
               ordinalPosition: column.ordinalPosition,
               sampleValues: (column.sampleValues ?? []) as Prisma.InputJsonValue,
-            })),
-          });
-        }
-
-        if (table.indexes.length > 0) {
-          await tx.databaseSourceIndex.createMany({
-            data: table.indexes.map((index) => ({
-              tableId: createdTable.id,
-              name: index.name,
-              columns: index.columns,
-              isUnique: index.isUnique,
-              isPrimary: index.isPrimary,
             })),
           });
         }
@@ -101,27 +81,11 @@ export class DatabaseKnowledgeRepository {
             data: {
               sourceTableId,
               targetTableId,
-              constraintName: foreignKey.constraintName ?? null,
               sourceColumn: foreignKey.sourceColumn,
               targetColumn: foreignKey.targetColumn,
-              onUpdate: foreignKey.onUpdate ?? null,
-              onDelete: foreignKey.onDelete ?? null,
             },
           });
         }
-      }
-
-      if (catalog.knowledgeDocuments.length > 0) {
-        await tx.databaseSourceKnowledgeDocument.createMany({
-          data: catalog.knowledgeDocuments.map((document) => ({
-            databaseSourceId: sourceId,
-            scope: document.scope,
-            referenceType: document.referenceType,
-            referenceKey: document.referenceKey,
-            content: document.content,
-            metadata: (document.metadata ?? {}) as Prisma.InputJsonValue,
-          })),
-        });
       }
 
       await tx.databaseSource.update({
@@ -161,7 +125,6 @@ export class DatabaseKnowledgeRepository {
               orderBy: { ordinalPosition: 'asc' },
               select: {
                 name: true,
-                normalizedName: true,
                 dataType: true,
                 isNullable: true,
                 isPrimaryKey: true,
@@ -169,23 +132,11 @@ export class DatabaseKnowledgeRepository {
                 sampleValues: true,
               },
             },
-            indexes: {
-              orderBy: { name: 'asc' },
-              select: {
-                name: true,
-                columns: true,
-                isUnique: true,
-                isPrimary: true,
-              },
-            },
             outgoingRelations: {
               orderBy: [{ targetTable: { schemaName: 'asc' } }, { targetTable: { name: 'asc' } }],
               select: {
-                constraintName: true,
                 sourceColumn: true,
                 targetColumn: true,
-                onUpdate: true,
-                onDelete: true,
                 targetTable: {
                   select: {
                     schemaName: true,
@@ -194,16 +145,6 @@ export class DatabaseKnowledgeRepository {
                 },
               },
             },
-          },
-        },
-        knowledgeDocuments: {
-          orderBy: [{ scope: 'asc' }, { referenceType: 'asc' }, { referenceKey: 'asc' }],
-          select: {
-            scope: true,
-            referenceType: true,
-            referenceKey: true,
-            content: true,
-            metadata: true,
           },
         },
       },
@@ -219,7 +160,6 @@ export class DatabaseKnowledgeRepository {
           rowCount: table.rowCount,
           columns: table.columns.map((column) => ({
             name: column.name,
-            normalizedName: column.normalizedName,
             dataType: column.dataType,
             isNullable: column.isNullable,
             isPrimaryKey: column.isPrimaryKey,
@@ -228,32 +168,12 @@ export class DatabaseKnowledgeRepository {
               ? column.sampleValues
               : [],
           })),
-          indexes: table.indexes.map((index) => ({
-            name: index.name,
-            columns: index.columns,
-            isUnique: index.isUnique,
-            isPrimary: index.isPrimary,
-          })),
           foreignKeys: table.outgoingRelations.map((relation) => ({
-            constraintName: relation.constraintName,
             sourceColumn: relation.sourceColumn,
             targetTable: relation.targetTable.name,
             targetSchema: relation.targetTable.schemaName,
             targetColumn: relation.targetColumn,
-            onUpdate: relation.onUpdate,
-            onDelete: relation.onDelete,
           })),
-        })) ?? [],
-      knowledgeDocuments:
-        source?.knowledgeDocuments.map((document) => ({
-          scope: document.scope,
-          referenceType: document.referenceType,
-          referenceKey: document.referenceKey,
-          content: document.content,
-          metadata:
-            document.metadata && typeof document.metadata === 'object'
-              ? (document.metadata as Record<string, unknown>)
-              : {},
         })) ?? [],
     };
   }
@@ -270,13 +190,9 @@ export class DatabaseKnowledgeRepository {
     const record = syncMetadata as Record<string, unknown>;
     const tableCount =
       typeof record.tableCount === 'number' ? `${record.tableCount} tables` : null;
-    const documentCount =
-      typeof record.documentCount === 'number'
-        ? `${record.documentCount} knowledge documents`
-        : null;
     const provider =
       typeof record.provider === 'string' ? record.provider : null;
 
-    return [provider, tableCount, documentCount].filter(Boolean).join(' · ');
+    return [provider, tableCount].filter(Boolean).join(' · ');
   }
 }

@@ -4,8 +4,7 @@ import { DatabaseKnowledgeRepository } from './database-knowledge.repository';
 import { DatabaseCatalogInput, DatabaseKnowledgeRuntime } from './database-knowledge.types';
 
 // The runtime catalog is read on every chat message but only changes on sync.
-// Loading it is a deeply nested query (every table, column, index, relation and
-// knowledge document) followed by a full remap, so it is cached in-process and
+// Loading it is a nested query (every table, column and relation) followed by a full remap, so it is cached in-process and
 // revalidated against the source's schema fingerprint. The fingerprint probe is
 // a primary-key lookup, which keeps the cache correct when another replica runs
 // the sync. Sources without a fingerprint are never cached, since there is then
@@ -86,10 +85,6 @@ export class DatabaseKnowledgeService {
     }
 
     return knowledge;
-  }
-
-  invalidateRuntimeKnowledge(sourceId: string) {
-    this.runtimeCache.delete(sourceId);
   }
 
   private setCached(sourceId: string, entry: CacheEntry) {

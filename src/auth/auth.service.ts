@@ -16,13 +16,4 @@ export class AuthService {
 
     return session ?? null;
   }
-
-  async getAccessToken(req: Request, providerId: string) {
-    return auth.api.getAccessToken({
-      headers: fromNodeHeaders(req.headers),
-      body: {
-        providerId,
-      },
-    });
-  }
 }

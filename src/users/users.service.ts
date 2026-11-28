@@ -101,14 +101,6 @@ export class UsersService {
     };
   }
 
-  getConnections(userId: string) {
-    return this.databaseSourcesService.listForUser(userId);
-  }
-
-  getLlmConnections(userId: string) {
-    return this.llmConnectionsService.listForUser(userId);
-  }
-
   async getChatOptions(userId: string) {
     const [databaseSources, llmConnections] = await Promise.all([
       this.databaseSourcesService.listForUser(userId),

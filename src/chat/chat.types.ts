@@ -90,13 +90,11 @@ export type AgentSyncRequest = {
 export type AgentSyncResponse = {
   sourceId: string;
   status: 'READY' | 'FAILED';
-  memoryCount: number;
   schemaFingerprint: string;
   syncedAt: string;
   syncMetadata: Record<string, unknown>;
   catalog: {
     tables: DatabaseKnowledgeRuntime['tables'];
-    knowledgeDocuments: DatabaseKnowledgeRuntime['knowledgeDocuments'];
   };
   error?: string;
 };
@@ -224,14 +222,6 @@ export type SqlResultEvent = {
   };
 };
 
-export type ArtifactEvent = {
-  type: 'artifact';
-  data: {
-    artifactType: 'TEXT' | 'SQL' | 'TABLE' | 'CHART' | 'ERROR';
-    payload: Record<string, unknown>;
-  };
-};
-
 export type ChartGeneratedEvent = {
   type: 'chart_generated';
   data: {
@@ -283,7 +273,6 @@ export type AgentTraceEvent = {
     steps: Array<{ text: string; at: string }>;
     toolCalls: Array<Record<string, unknown>>;
     repairHistory: Array<Record<string, unknown>>;
-    cacheKey?: string;
     cacheHit?: boolean;
     chartSpec?: VisualizationChartSpec | null;
     visualizationOutcome?: VisualizationOutcome | null;
@@ -291,21 +280,6 @@ export type AgentTraceEvent = {
     rowCount?: number;
     /** The question the agent answered; differs from the user's text for a follow-up. */
     standaloneQuestion?: string;
-  };
-};
-
-/**
- * Emitted by the backend (not the agent) once the run's trace row exists.
- *
- * Carries the trace id to the client so a message can be rated. Without it
- * there is no handle to send feedback against, which is why `feedback` has
- * been NULL for every trace ever written.
- */
-export type TracePersistedEvent = {
-  type: 'trace_persisted';
-  data: {
-    messageId: string;
-    traceId: string;
   };
 };
 
@@ -326,13 +300,11 @@ export type AgentStreamEvent =
   | SqlGeneratedEvent
   | SqlResultEvent
   | ChartGeneratedEvent
-  | ArtifactEvent
   | MessageCompletedEvent
   | MessageFailedEvent
   | AgentStepEvent
   | SuggestionsGeneratedEvent
   | AgentTraceEvent
-  | TracePersistedEvent
   | TitleGeneratedEvent
   | WebSourcesEvent;
 
@@ -408,8 +380,6 @@ export type ConversationLlmConnectionResponse = {
   displayName: string;
   defaultModel: string;
   apiKeyLastFour: string | null;
-  usesLinkedAccount: boolean;
-  linkedProviderId: string | null;
   isActive: boolean;
   lastError: string | null;
   lastTestedAt: string | null;
@@ -449,8 +419,6 @@ export type ConversationMessageResponse = {
   suggestions: string[];
   createdAt: string;
   updatedAt: string;
-  /** Handle for rating this message; null when no trace exists. */
-  traceId?: string | null;
   steps?: Array<{
     seq: number;
     text: string;

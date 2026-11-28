@@ -338,9 +338,6 @@ export class ConversationService {
       suggestions: message.suggestions,
       createdAt: message.createdAt.toISOString(),
       updatedAt: message.updatedAt.toISOString(),
-      // Handle for rating this message. Null for user messages and for
-      // assistant messages predating trace capture.
-      traceId: message.agentRunTraces?.[0]?.id ?? null,
       ...(persistedSteps.length > 0
         ? {
             steps: persistedSteps,
@@ -370,8 +367,6 @@ export class ConversationService {
       displayName: llmConnection.displayName,
       defaultModel: llmConnection.defaultModel,
       apiKeyLastFour: llmConnection.apiKeyLastFour,
-      usesLinkedAccount: llmConnection.usesLinkedAccount,
-      linkedProviderId: llmConnection.linkedProviderId,
       isActive: llmConnection.isActive,
       lastError: llmConnection.lastError,
       lastTestedAt: llmConnection.lastTestedAt?.toISOString() ?? null,

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
-import { MessageArtifactType, MessageStatus } from '@prisma/client';
+import { MessageArtifactType } from '@prisma/client';
 import { normalizeApiError } from '../common/errors/error-response';
 import {
   ExactPlanHit,
@@ -282,7 +282,6 @@ export class ChatService {
     let traceVisualizationOutcome: VisualizationOutcome | null = null;
     let traceAnalyticsOutcome: TraceAnalyticsOutcome | null = null;
     let traceRowCount: number | null = null;
-    let traceCacheKey: string | null = null;
     let traceCacheHit = false;
     let traceStandaloneQuestion: string | null = null;
     // Tracks whether the message reached a persisted terminal state. The
@@ -398,8 +397,6 @@ export class ChatService {
                 : null;
             traceRowCount =
               typeof event.data.rowCount === 'number' ? event.data.rowCount : null;
-            traceCacheKey =
-              typeof event.data.cacheKey === 'string' ? event.data.cacheKey : null;
             traceCacheHit = event.data.cacheHit === true;
             traceStandaloneQuestion =
               typeof event.data.standaloneQuestion === 'string' &&
@@ -420,11 +417,8 @@ export class ChatService {
           assistantContent,
         );
         await this.persistAgentRunTrace({
-          requestId,
-          status: MessageStatus.FAILED,
           effectiveModel: runtime.llm.model,
           question: trimmedContent,
-          response: assistantContent,
           error: traceError,
           tokenUsage,
           steps: traceSteps,
@@ -436,9 +430,7 @@ export class ChatService {
             traceAnalyticsOutcome,
             traceRowCount,
           ),
-          cacheKey: traceCacheKey,
           cacheHit: traceCacheHit,
-          suggestions,
           userId,
           databaseSourceId: conversation.databaseSourceId,
           conversationId,
@@ -461,12 +453,9 @@ export class ChatService {
         tokenUsage,
         suggestions,
       });
-      const completedTrace = await this.persistAgentRunTrace({
-        requestId,
-        status: MessageStatus.COMPLETED,
+      await this.persistAgentRunTrace({
         effectiveModel: runtime.llm.model,
         question: trimmedContent,
-        response: assistantContent,
         tokenUsage,
         steps: traceSteps,
         toolCalls: traceToolCalls,
@@ -477,9 +466,7 @@ export class ChatService {
           traceAnalyticsOutcome,
           traceRowCount,
         ),
-        cacheKey: traceCacheKey,
         cacheHit: traceCacheHit,
-        suggestions,
         userId,
         databaseSourceId: conversation.databaseSourceId,
         conversationId,
@@ -487,7 +474,6 @@ export class ChatService {
         messageId: assistantMessageId,
       });
       this.recordQueryMemory({
-        traceId: completedTrace.id,
         databaseSourceId: conversation.databaseSourceId,
         schemaFingerprint: runtime.database.schemaFingerprint ?? null,
         // The question the agent actually answered. For a follow-up the raw
@@ -497,13 +483,6 @@ export class ChatService {
         toolCalls: traceToolCalls,
         cacheHit: traceCacheHit,
       });
-      // Trailing event: the client needs this handle to rate the message. It
-      // arrives after message_completed, which is fine — the NDJSON reader
-      // consumes to end of stream.
-      yield {
-        type: 'trace_persisted',
-        data: { messageId: assistantMessageId, traceId: completedTrace.id },
-      };
       await this.artifactService.saveArtifacts(assistantMessageId, artifactBuffer);
       settled = true;
     } catch (error) {
@@ -545,11 +524,8 @@ export class ChatService {
       );
       await this.artifactService.saveArtifacts(assistantMessageId, artifactBuffer);
       await this.persistAgentRunTrace({
-        requestId,
-        status: MessageStatus.FAILED,
         effectiveModel: runtime.llm.model,
         question: trimmedContent,
-        response: assistantContent,
         error: traceError,
         tokenUsage,
         steps: traceSteps,
@@ -561,9 +537,7 @@ export class ChatService {
           traceAnalyticsOutcome,
           traceRowCount,
         ),
-        cacheKey: traceCacheKey,
         cacheHit: traceCacheHit,
-        suggestions,
         userId,
         databaseSourceId: conversation.databaseSourceId,
         conversationId,
@@ -610,28 +584,12 @@ export class ChatService {
     }
   }
 
-  async submitTraceFeedback(
-    traceId: string,
-    userId: string,
-    feedback: 'positive' | 'negative',
-  ): Promise<void> {
-    await this.chatRepository.submitFeedback(traceId, userId, feedback);
-  }
-
   private persistAgentRunTrace(
     input: Parameters<ChatRepository['createAgentRunTrace']>[0],
   ) {
     return this.chatRepository.createAgentRunTrace(input);
   }
 
-  /**
-   * Remembers a successful turn's SQL, off the critical path.
-   *
-   * Only the COMPLETED path records: a run that executed SQL and then failed
-   * downstream produced valid SQL, but the user did not get an answer from it,
-   * and an example the user never saw succeed is not one worth teaching from.
-   * `buildEntry` applies the rest of the filtering (executed, non-empty result).
-   */
   /**
    * Shapes what the backend retrieved into the agent's request body. Returns
    * undefined when nothing was found, so the agent sees no retrieval key at
@@ -658,8 +616,15 @@ export class ChatService {
     };
   }
 
+  /**
+   * Remembers a successful turn's SQL, off the critical path.
+   *
+   * Only the COMPLETED path records: a run that executed SQL and then failed
+   * downstream produced valid SQL, but the user did not get an answer from it,
+   * and an example the user never saw succeed is not one worth teaching from.
+   * `buildEntry` applies the rest of the filtering (executed, non-empty result).
+   */
   private recordQueryMemory(input: {
-    traceId: string;
     databaseSourceId: string;
     schemaFingerprint: string | null;
     question: string;

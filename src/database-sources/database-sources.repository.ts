@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DatabaseSourceStatus, Prisma } from '@prisma/client';
+import { DatabaseSourceStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SupportedDatabaseProvider } from './database-sources.types';
 
@@ -139,10 +139,6 @@ export class DatabaseSourcesRepository {
     });
   }
 
-  markSuccess(id: string) {
-    return this.markReady(id);
-  }
-
   markSyncing(id: string) {
     return this.prisma.databaseSource.update({
       where: { id },
@@ -169,13 +165,8 @@ export class DatabaseSourcesRepository {
     });
   }
 
-  markReady(
-    id: string,
-    metadata?: {
-      schemaFingerprint?: string | null;
-      syncMetadata?: Record<string, unknown>;
-    },
-  ) {
+  /** replaceCatalog has already written schemaFingerprint and syncMetadata. */
+  markReady(id: string) {
     return this.prisma.databaseSource.update({
       where: { id },
       data: {
@@ -183,8 +174,6 @@ export class DatabaseSourcesRepository {
         lastError: null,
         lastTestedAt: new Date(),
         lastSyncedAt: new Date(),
-        schemaFingerprint: metadata?.schemaFingerprint ?? null,
-        syncMetadata: (metadata?.syncMetadata ?? {}) as Prisma.InputJsonValue,
       },
       select: {
         id: true,
